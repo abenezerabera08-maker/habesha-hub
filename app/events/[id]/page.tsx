@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import TicketList from './TicketList'
@@ -30,6 +31,21 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
 
       <h2>Tickets</h2>
       <TicketList eventId={event.id} initialTiers={event.ticket_tiers} />
+      <Link
+        href={`/events/${event.id}/checkout`}
+        style={{
+          display: 'inline-block',
+          marginTop: 16,
+          padding: '10px 24px',
+          border: '1px solid #333',
+          borderRadius: 6,
+          textDecoration: 'none',
+          color: '#fff',
+          background: '#171717',
+        }}
+      >
+        Buy Tickets
+      </Link>
     </div>
   )
 }

@@ -73,19 +73,20 @@ export default function InterestsPage() {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) return
 
-    const { data: existing } = await supabase
+    const { error: deleteError } = await supabase
       .from('user_interests')
-      .select('interest_id')
+      .delete()
       .eq('user_id', session.user.id)
 
-    const existingIds = new Set((existing ?? []).map((r: { interest_id: string }) => r.interest_id))
+    if (deleteError) {
+      setError('Failed to save interests.')
+      setSaving(false)
+      return
+    }
 
-    const toInsert = [...selected].filter((id) => !existingIds.has(id))
-    const toRemove = [...existingIds].filter((id) => !selected.has(id))
-
-    if (toInsert.length > 0) {
+    if (selected.size > 0) {
       const { error: insertError } = await supabase.from('user_interests').insert(
-        toInsert.map((interest_id) => ({ user_id: session.user.id, interest_id }))
+        [...selected].map((interest_id) => ({ user_id: session.user.id, interest_id }))
       )
       if (insertError) {
         setError('Failed to save interests.')
@@ -94,21 +95,7 @@ export default function InterestsPage() {
       }
     }
 
-    if (toRemove.length > 0) {
-      const { error: deleteError } = await supabase
-        .from('user_interests')
-        .delete()
-        .eq('user_id', session.user.id)
-        .in('interest_id', toRemove)
-      if (deleteError) {
-        setError('Failed to save interests.')
-        setSaving(false)
-        return
-      }
-    }
-
-    setSaving(false)
-    setSaved(true)
+    router.push('/')
   }
 
   if (loading) return <p>Loading...</p>

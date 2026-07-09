@@ -161,6 +161,32 @@ export default function AccountPage() {
         <PrefRow icon={<BellIcon />} label="Manage notifications" href="#" />
       </div>
 
+      {/* Host an Event */}
+      <button
+        onClick={async () => {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (!session) {
+            router.push('/choose-role')
+          } else {
+            router.push('/create-event')
+          }
+        }}
+        style={{
+          width: '100%',
+          padding: '12px 20px',
+          borderRadius: 8,
+          border: 'none',
+          background: '#171717',
+          color: '#fff',
+          fontSize: 15,
+          fontWeight: 600,
+          cursor: 'pointer',
+          marginBottom: 16,
+        }}
+      >
+        Host an Event
+      </button>
+
       {/* Logout */}
       <LogoutButton />
     </div>

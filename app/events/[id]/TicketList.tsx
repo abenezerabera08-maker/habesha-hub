@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 type TicketTier = {
@@ -18,7 +19,17 @@ export default function TicketList({
   eventId: string
   initialTiers: TicketTier[]
 }) {
+  const router = useRouter()
   const [tiers, setTiers] = useState<TicketTier[]>(initialTiers)
+
+  const handleBuyTickets = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      router.push('/choose-role')
+    } else {
+      router.push(`/events/${eventId}/checkout`)
+    }
+  }
 
   useEffect(() => {
     const channel = supabase
@@ -49,12 +60,17 @@ export default function TicketList({
   if (tiers.length === 0) return <p>No tickets available yet.</p>
 
   return (
-    <ul>
-      {tiers.map((tier) => (
-        <li key={tier.id}>
-          {tier.name} — ${tier.price} ({tier.quantity_available - tier.quantity_sold} left)
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul>
+        {tiers.map((tier) => (
+          <li key={tier.id}>
+            {tier.name} — ${tier.price} ({tier.quantity_available - tier.quantity_sold} left)
+          </li>
+        ))}
+      </ul>
+      <button onClick={handleBuyTickets} style={{ marginTop: 16, padding: '10px 28px', borderRadius: 8, border: 'none', background: '#171717', color: '#fff', fontSize: 15, cursor: 'pointer' }}>
+        Buy Tickets
+      </button>
+    </>
   )
 }

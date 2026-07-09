@@ -25,7 +25,7 @@ export default function SignUpPage() {
     if (data.user?.identities?.length === 0) {
       setConfirmationSent(true)
     } else {
-      router.push('/account')
+      router.push('/account/interests')
     }
   }
 

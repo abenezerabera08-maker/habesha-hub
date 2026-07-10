@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 export default function SignUpPage() {
   const [email, setEmail] = useState('')
@@ -10,6 +10,9 @@ export default function SignUpPage() {
   const [error, setError] = useState('')
   const [confirmationSent, setConfirmationSent] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const roleParam = searchParams.get('role')
+  const role = roleParam === 'attendee' || roleParam === 'organizer' ? roleParam : 'attendee'
 
   async function handleSignUp(e: React.FormEvent) {
     e.preventDefault()
@@ -24,7 +27,8 @@ export default function SignUpPage() {
 
     if (data.user?.identities?.length === 0) {
       setConfirmationSent(true)
-    } else {
+    } else if (data.user) {
+      await supabase.from('profiles').update({ role }).eq('id', data.user.id)
       router.push('/account/interests')
     }
   }

@@ -9,10 +9,10 @@ export default function ChooseRolePage() {
     <div style={{ maxWidth: 400, margin: '80px auto', textAlign: 'center' }}>
       <h1>What do you want to do?</h1>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 24 }}>
-        <button id="attend-events-btn" style={{ padding: '10px 28px', borderRadius: 8, border: '1px solid #ccc', background: '#fff', color: '#171717', fontSize: 15, cursor: 'pointer' }}>
+        <button id="attend-events-btn" onClick={() => router.push('/signup?role=attendee')} style={{ padding: '10px 28px', borderRadius: 8, border: '1px solid #ccc', background: '#fff', color: '#171717', fontSize: 15, cursor: 'pointer' }}>
           👤 Attend Events
         </button>
-        <button id="host-event-btn" style={{ padding: '10px 28px', borderRadius: 8, border: '1px solid #ccc', background: '#fff', color: '#171717', fontSize: 15, cursor: 'pointer' }}>
+        <button id="host-event-btn" onClick={() => router.push('/signup?role=organizer')} style={{ padding: '10px 28px', borderRadius: 8, border: '1px solid #ccc', background: '#fff', color: '#171717', fontSize: 15, cursor: 'pointer' }}>
           🏢 Host an Event
         </button>
       </div>

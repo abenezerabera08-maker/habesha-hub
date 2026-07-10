@@ -95,7 +95,13 @@ export default function InterestsPage() {
       }
     }
 
-    router.push('/')
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', session.user.id)
+      .single()
+
+    router.push(profile?.role === 'organizer' ? '/dashboard' : '/')
   }
 
   if (loading) return <p>Loading...</p>

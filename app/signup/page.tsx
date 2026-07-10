@@ -29,7 +29,7 @@ export default function SignUpPage() {
       setConfirmationSent(true)
     } else if (data.user) {
       await supabase.from('profiles').update({ role }).eq('id', data.user.id)
-      router.push('/account/interests')
+      router.push(role === 'organizer' ? '/onboarding/organizer-profile' : '/onboarding/attendee-profile')
     }
   }
 

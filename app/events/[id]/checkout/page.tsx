@@ -38,6 +38,10 @@ export default function CheckoutPage({ params }: { params: Promise<{ id: string 
   const [quantity, setQuantity] = useState(1)
   const [loading, setLoading] = useState(true)
   const [notAvailable, setNotAvailable] = useState(false)
+  const [proofFile, setProofFile] = useState<File | null>(null)
+  const [referenceNumber, setReferenceNumber] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     const init = async () => {
@@ -87,6 +91,107 @@ export default function CheckoutPage({ params }: { params: Promise<{ id: string 
 
   const totalPrice = tier ? tier.price * quantity : 0
   const maxQty = tier?.max_per_order ?? 999
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+
+    if (!selectedPmId) {
+      setError('Please select a payment method.')
+      return
+    }
+    if (!proofFile) {
+      setError('Please upload proof of payment.')
+      return
+    }
+
+    setSubmitting(true)
+
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      router.push('/login')
+      return
+    }
+    const userId = session.user.id
+
+    // Step a: create the order
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .insert({
+        user_id: userId,
+        event_id: id,
+        ticket_tier_id: tierId,
+        quantity,
+        total_price: totalPrice,
+        status: 'pending_payment',
+      })
+      .select('id')
+      .single()
+
+    if (orderError || !order) {
+      setError(orderError?.message ?? 'Failed to create order.')
+      setSubmitting(false)
+      return
+    }
+
+    // Step b: upload proof image to Supabase Storage
+    const storagePath = `${userId}/${order.id}-${proofFile.name}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('payment-proofs')
+      .upload(storagePath, proofFile, { contentType: proofFile.type })
+
+    if (uploadError) {
+      setError(uploadError.message)
+      setSubmitting(false)
+      return
+    }
+
+    // Step c: create the payment row
+    const { data: payment, error: paymentError } = await supabase
+      .from('payments')
+      .insert({
+        order_id: order.id,
+        amount: totalPrice,
+      })
+      .select('id')
+      .single()
+
+    if (paymentError || !payment) {
+      setError(paymentError?.message ?? 'Failed to record payment.')
+      setSubmitting(false)
+      return
+    }
+
+    // Step d: create the payment proof row
+    const { error: proofError } = await supabase
+      .from('payment_proofs')
+      .insert({
+        payment_id: payment.id,
+        image_url: storagePath,
+        reference_number: referenceNumber.trim() || null,
+      })
+
+    if (proofError) {
+      setError(proofError.message)
+      setSubmitting(false)
+      return
+    }
+
+    // Step e: update order status
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update({ status: 'pending_verification' })
+      .eq('id', order.id)
+
+    if (updateError) {
+      setError(updateError.message)
+      setSubmitting(false)
+      return
+    }
+
+    router.push('/my-tickets')
+  }
 
   if (loading) return <p>Loading...</p>
 
@@ -182,6 +287,41 @@ export default function CheckoutPage({ params }: { params: Promise<{ id: string 
           ))}
         </div>
       )}
+
+      <label style={{ display: 'block', marginBottom: 16 }}>
+        Proof of payment (image)
+        <input
+          type="file"
+          id="proof-image-input"
+          accept="image/*"
+          onChange={(e) => setProofFile(e.target.files?.[0] ?? null)}
+          style={{ display: 'block', width: '100%', marginTop: 4 }}
+          required
+        />
+      </label>
+
+      <label style={{ display: 'block', marginBottom: 16 }}>
+        Reference number (optional)
+        <input
+          type="text"
+          id="reference-number-input"
+          placeholder="e.g. bank transfer reference"
+          value={referenceNumber}
+          onChange={(e) => setReferenceNumber(e.target.value)}
+          style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }}
+        />
+      </label>
+
+      {error && <p style={{ color: 'red', marginBottom: 12 }}>{error}</p>}
+
+      <button
+        type="button"
+        onClick={handleSubmit}
+        disabled={submitting}
+        style={{ padding: '10px 24px', width: '100%', cursor: submitting ? 'not-allowed' : 'pointer', background: '#171717', color: '#fff', border: 'none', borderRadius: 8, fontSize: 15 }}
+      >
+        {submitting ? 'Submitting\u2026' : 'Submit Payment for Verification'}
+      </button>
     </div>
   )
 }

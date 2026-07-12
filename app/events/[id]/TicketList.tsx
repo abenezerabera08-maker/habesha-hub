@@ -7,9 +7,23 @@ import { supabase } from '@/lib/supabase'
 type TicketTier = {
   id: string
   name: string
+  description: string | null
   price: number
-  quantity_available: number
-  quantity_sold: number
+  quantity_remaining: number
+  color: string | null
+  benefits: string[] | null
+  max_group_size: number | null
+}
+
+const colorMap: Record<string, string> = {
+  gold: '#FFD700',
+  silver: '#C0C0C0',
+  bronze: '#CD7F32',
+  blue: '#3B82F6',
+  green: '#22C55E',
+  purple: '#A855F7',
+  red: '#EF4444',
+  gray: '#9CA3AF',
 }
 
 export default function TicketList({
@@ -22,16 +36,24 @@ export default function TicketList({
   const router = useRouter()
   const [tiers, setTiers] = useState<TicketTier[]>(initialTiers)
 
-  const handleBuyTickets = async () => {
+  const handleSelectTier = async (tierId: string) => {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) {
       router.push('/choose-role')
     } else {
-      router.push(`/events/${eventId}/checkout`)
+      router.push(`/events/${eventId}/checkout?tier=${tierId}`)
     }
   }
 
   useEffect(() => {
+    const fetchTiers = async () => {
+      const { data } = await supabase
+        .from('purchasable_ticket_tiers')
+        .select('*')
+        .eq('event_id', eventId)
+      if (data) setTiers(data)
+    }
+
     const channel = supabase
       .channel(`ticket_tiers:${eventId}`)
       .on(
@@ -42,12 +64,8 @@ export default function TicketList({
           table: 'ticket_tiers',
           filter: `event_id=eq.${eventId}`,
         },
-        (payload) => {
-          setTiers((current) =>
-            current.map((tier) =>
-              tier.id === payload.new.id ? (payload.new as TicketTier) : tier
-            )
-          )
+        () => {
+          fetchTiers()
         }
       )
       .subscribe()
@@ -61,16 +79,58 @@ export default function TicketList({
 
   return (
     <>
-      <ul>
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
         {tiers.map((tier) => (
-          <li key={tier.id}>
-            {tier.name} — ${tier.price} ({tier.quantity_available - tier.quantity_sold} left)
+          <li
+            key={tier.id}
+            style={{
+              border: '1px solid #ddd',
+              borderRadius: 8,
+              padding: 16,
+              marginBottom: 12,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              {tier.color && (
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: 12,
+                    height: 12,
+                    borderRadius: '50%',
+                    background: colorMap[tier.color] ?? '#999',
+                  }}
+                />
+              )}
+              <strong>{tier.name}</strong>
+            </div>
+            {tier.description && (
+              <p style={{ margin: '4px 0', color: '#555', fontSize: 14 }}>{tier.description}</p>
+            )}
+            <p style={{ margin: '4px 0' }}>
+              {tier.price} ETB — {tier.quantity_remaining} remaining
+            </p>
+            {tier.benefits && tier.benefits.length > 0 && (
+              <ul style={{ margin: '4px 0', paddingLeft: 20, fontSize: 14 }}>
+                {tier.benefits.map((b, i) => (
+                  <li key={i}>{b}</li>
+                ))}
+              </ul>
+            )}
+            {tier.max_group_size && (
+              <p style={{ margin: '4px 0', fontSize: 14, fontStyle: 'italic' }}>
+                Group ticket — admits up to {tier.max_group_size} people per ticket
+              </p>
+            )}
+            <button
+              onClick={() => handleSelectTier(tier.id)}
+              style={{ marginTop: 8, padding: '8px 20px', borderRadius: 8, border: 'none', background: '#171717', color: '#fff', fontSize: 14, cursor: 'pointer' }}
+            >
+              Select this ticket
+            </button>
           </li>
         ))}
       </ul>
-      <button onClick={handleBuyTickets} style={{ marginTop: 16, padding: '10px 28px', borderRadius: 8, border: 'none', background: '#171717', color: '#fff', fontSize: 15, cursor: 'pointer' }}>
-        Buy Tickets
-      </button>
     </>
   )
 }

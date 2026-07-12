@@ -5,10 +5,7 @@ import TicketList from './TicketList'
 async function getEvent(id: string) {
   const { data, error } = await supabase
     .from('events')
-    .select(`
-      id, title, description, location, event_date,
-      ticket_tiers ( id, name, price, quantity_available, quantity_sold )
-    `)
+    .select('id, title, description, location, event_date')
     .eq('id', id)
     .single()
 
@@ -16,10 +13,22 @@ async function getEvent(id: string) {
   return data
 }
 
+async function getTicketTiers(eventId: string) {
+  const { data, error } = await supabase
+    .from('purchasable_ticket_tiers')
+    .select('*')
+    .eq('event_id', eventId)
+
+  if (error) return []
+  return data ?? []
+}
+
 export default async function EventPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const event = await getEvent(id)
   if (!event) notFound()
+
+  const tiers = await getTicketTiers(id)
 
   return (
     <div>
@@ -29,7 +38,7 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
       <p><strong>Date:</strong> {new Date(event.event_date).toLocaleString()}</p>
 
       <h2>Tickets</h2>
-      <TicketList eventId={event.id} initialTiers={event.ticket_tiers} />
+      <TicketList eventId={event.id} initialTiers={tiers} />
     </div>
   )
 }

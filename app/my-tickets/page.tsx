@@ -34,6 +34,12 @@ type Order = {
   created_at: string | null
   event: EventRow | null
   tier: TierRow | null
+  rejection_reason: string | null
+}
+
+type VerificationNote = {
+  payment_id: string
+  notes: string | null
 }
 
 export default function MyTicketsPage() {
@@ -86,6 +92,27 @@ export default function MyTicketsPage() {
       const eventMap = new Map((eventsRes.data ?? []).map((e: EventRow) => [e.id, e]))
       const tierMap = new Map((tiersRes.data ?? []).map((t: TierRow) => [t.id, t]))
 
+      const { data: paymentsData } = await supabase
+        .from('payments')
+        .select('id, order_id')
+        .in('order_id', rawOrders.map((o) => o.id))
+
+      const { data: verificationsData } = await supabase
+        .from('payment_verifications')
+        .select('payment_id, notes, created_at')
+        .in('payment_id', (paymentsData ?? []).map((p) => p.id))
+        .eq('decision', 'rejected')
+        .order('created_at', { ascending: false })
+
+      const paymentToOrder = new Map((paymentsData ?? []).map((p) => [p.id, p.order_id]))
+      const orderRejectionMap = new Map<string, string>()
+      for (const v of verificationsData ?? []) {
+        const orderId = paymentToOrder.get(v.payment_id)
+        if (orderId && !orderRejectionMap.has(orderId) && v.notes) {
+          orderRejectionMap.set(orderId, v.notes)
+        }
+      }
+
       const merged: Order[] = rawOrders.map((r) => ({
         id: r.id,
         quantity: r.quantity,
@@ -94,6 +121,7 @@ export default function MyTicketsPage() {
         created_at: r.created_at,
         event: eventMap.get(r.event_id) ?? null,
         tier: tierMap.get(r.ticket_tier_id) ?? null,
+        rejection_reason: orderRejectionMap.get(r.id) ?? null,
       }))
 
       console.log('[my-tickets] merged orders:', merged)
@@ -147,6 +175,28 @@ export default function MyTicketsPage() {
               <p style={{ margin: '4px 0', fontWeight: 600 }}>
                 ${order.total_price.toFixed(2)}
               </p>
+              {order.status === 'pending_verification' && (
+                <p style={{ margin: '4px 0', color: '#a16207', fontWeight: 600 }}>
+                  ⏳ Awaiting confirmation
+                </p>
+              )}
+              {order.status === 'confirmed' && (
+                <p style={{ margin: '4px 0', color: '#15803d', fontWeight: 600 }}>
+                  ✅ Confirmed
+                </p>
+              )}
+              {order.status === 'pending_payment' && (
+                <div style={{ margin: '4px 0' }}>
+                  <p style={{ color: '#b91c1c', fontWeight: 600, margin: 0 }}>
+                    ❌ Payment rejected
+                  </p>
+                  {order.rejection_reason && (
+                    <p style={{ color: '#7f1d1d', fontSize: 13, margin: '2px 0 0' }}>
+                      Reason: {order.rejection_reason}
+                    </p>
+                  )}
+                </div>
+              )}
               <p style={{ margin: '4px 0', fontSize: 13, color: '#888' }}>
                 Ordered {order.created_at ? new Date(order.created_at).toLocaleDateString() : 'date unknown'}
               </p>

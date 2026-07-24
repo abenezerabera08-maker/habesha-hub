@@ -187,6 +187,27 @@ export default function AccountPage() {
         Host an Event
       </button>
 
+      <Link
+        href="/my-events"
+        style={{
+          display: 'block',
+          width: '100%',
+          padding: '12px 20px',
+          borderRadius: 8,
+          border: '1px solid #ddd',
+          background: '#fff',
+          color: '#171717',
+          fontSize: 15,
+          fontWeight: 600,
+          cursor: 'pointer',
+          marginBottom: 16,
+          textAlign: 'center',
+          textDecoration: 'none',
+        }}
+      >
+        My Events
+      </Link>
+
       {/* Logout */}
       <LogoutButton />
     </div>

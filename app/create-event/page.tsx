@@ -109,7 +109,7 @@ export default function CreateEventPage() {
 
   const filledTiers = tiers.filter(isTierFilled)
 
-  const handleCreateEvent = async (e: React.FormEvent) => {
+  const handleCreateEvent = async (e: React.FormEvent, submitStatus: 'draft' | 'pending_review') => {
     e.preventDefault()
     setError('')
 
@@ -154,6 +154,7 @@ export default function CreateEventPage() {
         description,
         location,
         event_date: eventDate,
+        status: submitStatus,
       })
       .select()
       .single()
@@ -212,7 +213,7 @@ export default function CreateEventPage() {
   return (
     <div>
       <h1>Create Event</h1>
-      <form onSubmit={handleCreateEvent}>
+      <form onSubmit={(e) => e.preventDefault()}>
         <input type="text" placeholder="Event title" value={title} onChange={(e) => setTitle(e.target.value)} required />
         <textarea placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
         <input type="text" placeholder="Location" value={location} onChange={(e) => setLocation(e.target.value)} required />
@@ -620,7 +621,14 @@ export default function CreateEventPage() {
         </button>
 
         {error && <p style={{ color: 'red' }}>{error}</p>}
-        <button type="submit">Create Event</button>
+        <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
+          <button type="button" onClick={(e) => handleCreateEvent(e, 'draft')} style={{ padding: '10px 20px', background: '#fff', color: '#171717', border: '1px solid #171717', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>
+            Save as Draft
+          </button>
+          <button type="button" onClick={(e) => handleCreateEvent(e, 'pending_review')} style={{ padding: '10px 20px', background: '#171717', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>
+            Submit for Review
+          </button>
+        </div>
       </form>
     </div>
   )

@@ -38,13 +38,18 @@ const emptyTicketTier = (): TicketTier => ({
   description: '',
   price: '',
   quantity_available: '',
-  sale_start: '',
+  sale_start: new Date().toISOString().slice(0, 16),
   sale_end: '',
   max_per_order: '',
   max_group_size: '',
   color: '',
   benefits: [],
 })
+
+function toUTCISOString(localDateTimeStr: string): string | null {
+  if (!localDateTimeStr) return null
+  return new Date(localDateTimeStr).toISOString()
+}
 
 export default function CreateEventPage() {
   const [loading, setLoading] = useState(true)
@@ -167,8 +172,8 @@ export default function CreateEventPage() {
         price: parseFloat(t.price),
         quantity_available: parseInt(t.quantity_available),
         display_order: i,
-        sale_start: t.sale_start || null,
-        sale_end: t.sale_end || null,
+        sale_start: toUTCISOString(t.sale_start),
+        sale_end: toUTCISOString(t.sale_end),
         max_per_order: t.max_per_order ? parseInt(t.max_per_order) : null,
         max_group_size: t.max_group_size ? parseInt(t.max_group_size) : null,
         color: t.color || null,
@@ -213,6 +218,9 @@ export default function CreateEventPage() {
         <input type="text" placeholder="Location" value={location} onChange={(e) => setLocation(e.target.value)} required />
         <input type="datetime-local" value={eventDate} onChange={(e) => setEventDate(e.target.value)} required />
 
+        <p style={{ fontSize: 13, color: '#555', marginTop: 8, marginBottom: 8 }}>
+          Note: the event date you set above ({eventDate ? new Date(eventDate).toLocaleString() : 'not set yet'}) is the latest possible sale end date for any ticket type below.
+        </p>
         <h3>Ticket Info</h3>
         <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>
           Add one or more ticket types for your event.
@@ -354,6 +362,7 @@ export default function CreateEventPage() {
                     updated[index].sale_end = e.target.value
                     setTiers(updated)
                   }}
+                  max={eventDate || undefined}
                   style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }}
                 />
               </label>

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import BottomNav from "./components/BottomNav";
 
 export const metadata: Metadata = {
   title: "Habesha Hub",
@@ -13,8 +14,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>
+      <body style={{ paddingBottom: 70 }}>
         {children}
+        <BottomNav />
       </body>
     </html>
   );

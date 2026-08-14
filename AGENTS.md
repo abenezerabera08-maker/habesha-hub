@@ -20,8 +20,11 @@ after every session.
   methods (TeleBirr, CBE Birr, bank transfer); attendees buy tickets by
   uploading proof of payment, which the organizer manually reviews and
   approves or rejects.
-- **Roles today:** `organizer` and `customer` (attendee), stored on
-  `profiles.role`. No `admin` role exists yet.
+- **Roles today:** `organizer`, `customer` (attendee), and `admin`, stored on
+  `profiles.role`. Admins are assigned by another admin via the admin users
+  page (`/admin/users`, `setUserRole` in `lib/services/admin.ts`); role changes
+  go through the server API route so a non-admin cannot self-escalate (see the
+  `protect_profile_role` trigger in the lockdown migration).
 
 ## Working rules — follow these exactly
 
@@ -90,11 +93,16 @@ the database silently keeps the old value.
     against `organizer_id`)
   - `/dashboard` — organizer overview (revenue + tickets-sold stat cards)
   - `/dashboard/payments` — payment verification/approval queue
-  - `/dashboard/scanner` (planned, not built) — TK-code search-based
-    check-in, **not** a camera/QR scanner
-- **Bottom nav:** Discover, Saved, Tickets, Account for everyone; Dashboard +
-  Scanner added only when `profiles.role === 'organizer'`. No shared auth
-  context exists — role is fetched directly in `BottomNav` on mount.
+  - `/dashboard/scanner` — TK-code search-based check-in, **not** a camera/QR
+    scanner. Backed by `/api/checkin/lookup`, `/api/checkin/confirm`,
+    `/api/checkin/export`; codes come from `lib/tkcode.ts` (`generateTkCode`)
+    and are written to `orders.tk_code` when a payment is approved.
+    Requires `orders.tk_code`, `orders.checked_in_at`, `orders.checked_in_by`
+    columns (see `supabase/migrations/20260815_orders_checkin_columns.sql`).
+- **Bottom nav:** Discover, Tickets, Account for everyone; Dashboard + Scanner
+  added only when `profiles.role === 'organizer'`; Admin added only when
+  `profiles.role === 'admin'`. No shared auth context exists — role is fetched
+  directly in `BottomNav` on mount.
 - **Server API boundary:** Privileged/status mutations run through server
   routes with a service-role client (`lib/api.ts`: `requireUser`/
   `requireAdmin`/`runApi`/`adminClient`); client calls them via
@@ -103,6 +111,11 @@ the database silently keeps the old value.
   RLS is defense-in-depth on top (see lockdown migration). `SUPABASE_SERVICE_ROLE_KEY`
   must exist in `.env.local` or every API route returns 500.
 - **Organizers buying their own event's tickets is allowed** — not a bug.
+- **Payment method per order:** the provider the attendee selected lives on
+  `payments.payment_method_id` (not on `orders`), written by
+  `/api/checkout/confirm`. Look it up as `orders → payments → payment_method_id
+  → event_payment_methods.type` when a verification feature needs to know the
+  provider.
 
 ## Open / Next up
 
@@ -113,16 +126,26 @@ the database silently keeps the old value.
      (`archived` is only in the my-events color map; no write path uses it yet)
    - A notification system (nothing is wired up — the old note about a
      decorative bell icon was stale; there is no bell icon in the codebase)
-2. **Ticket check-in system** (its own future stage) — organizer gets a
-   search page scoped to their event, looks up a TK code, marks it checked;
-   a checked code can't be reused; organizer can download the full attendee
-   list to check people off manually if there's a connectivity problem at
-   the door. Deliberately not QR/camera-based.
+2. **Ticket check-in system** — built (TK generation, lookup/confirm/export
+   routes, `/dashboard/scanner`), see Known architecture facts. Remaining:
+   - Apply `20260815_orders_checkin_columns.sql` to the live DB
+   - Confirm the check-in flow end to end against a real approved order
 3. **Stage 9** — fuller analytics dashboard (charts, recent sales table)
    beyond the current revenue/tickets-sold stat cards.
 4. **Stage 10** — Discover page ranking by city/interest match (filtering
    already correct: published + upcoming only).
 5. **Stage 11** — event-interest tagging on the create-event page.
+6. **Migration baseline** — `supabase/migrations/` has no baseline snapshot of
+   the live schema; the base schema only exists in the Supabase project. Before
+   adding payment-provider columns/reference codes/expiry timestamps, snapshot
+   the current live schema into a baseline migration so future migrations layer
+   on something reproducible from git.
+7. **Admin users list caps at 50** — `db.auth.admin.listUsers()` is paginated
+   (default 50); `/admin/users` will silently drop users past the 50th. Fix
+   with `page`/`perPage` before the app crosses 50 users.
+8. **Auth-guard consistency** — `HARDENING.md` claims every protected page uses
+   `requireRole()`, but `app/dashboard/page.tsx` and `app/my-events/page.tsx`
+   still use the older `getSession()` + manual role check.
 
 ## Progress Log
 
@@ -170,6 +193,20 @@ what got fixed. Keep entries short; this is a changelog, not a diary.
   promotes/demotes customer/organizer/admin, self-demotion blocked), linked
   from `/admin`. Requires the live `profiles` UPDATE policy to allow
   `is_admin()` (per the hardening migration). Lint, tsc, `next build` pass.
+
+- **Session (2026-08-15, payment prep review):** Re-confirmed the
+  organizer-or-admin ownership gate survived in `app/api/payments/verify/route.ts`
+  (payment→order→event→organizer chain, admin fallback). Lint + `next build`
+  pass on the full tree incl. scanner page + checkin routes. Confirmed the
+  selected payment method already persists on `payments.payment_method_id`
+  (written by `/api/checkout/confirm`), so automated provider routing has its
+  data source. Added `supabase/migrations/20260815_orders_checkin_columns.sql`
+  (orders.tk_code unique partial index, checked_in_at, checked_in_by FK). The
+  `20260814_harden_rls_policies.sql` migration is intentionally `.NOT_APPLIED` —
+  header documents it as superseded by existing live policies; verify live via
+  the `pg_policies` query in the Standing rule section before relying on it.
+  Note: `orders.quantity_sold` is still never incremented (read-side
+  availability only; oversell race remains).
 
 - **Session (2026-08-14, API layer + security boundary):** Closed the
   "service layer is the trusted backend" finding. All privileged/status

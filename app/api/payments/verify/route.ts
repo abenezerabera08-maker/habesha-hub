@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server'
 import { ApiFailure, requireUser, runApi } from '@/lib/api'
+import { generateTkCode } from '@/lib/tkcode'
 
 export const runtime = 'nodejs'
 
@@ -79,6 +80,11 @@ export async function POST(request: NextRequest) {
     const targetStatus = decision === 'approved' ? 'approved' : 'rejected'
     const orderTarget = decision === 'approved' ? 'confirmed' : 'pending_payment'
 
+    let tkCode: string | null = null
+    if (decision === 'approved') {
+      tkCode = await generateTkCode(db)
+    }
+
     const rollbackPayment = async () => {
       await db
         .from('payments')
@@ -111,7 +117,7 @@ export async function POST(request: NextRequest) {
 
     const { data: orderRes, error: orderError } = await db
       .from('orders')
-      .update({ status: orderTarget })
+      .update({ status: orderTarget, ...(tkCode ? { tk_code: tkCode } : {}) })
       .eq('id', orderId)
       .select('id, status')
       .single()

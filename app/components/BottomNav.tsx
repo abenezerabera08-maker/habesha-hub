@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Home, Ticket, User, LayoutDashboard, ShieldCheck } from 'lucide-react'
+import { Home, Ticket, User, LayoutDashboard, ShieldCheck, ScanLine } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -34,6 +34,7 @@ export default function BottomNav() {
     ...(role === 'organizer'
       ? [
           { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+          { label: 'Scanner', href: '/dashboard/scanner', icon: ScanLine },
         ]
       : []),
     ...(role === 'admin'

@@ -95,6 +95,9 @@ export default function InterestsPage() {
       }
     }
 
+    setSaving(false)
+    setSaved(true)
+
     const { data: profile } = await supabase
       .from('profiles')
       .select('role')

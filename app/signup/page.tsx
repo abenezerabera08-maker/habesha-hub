@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter, useSearchParams } from 'next/navigation'
 
-export default function SignUpPage() {
+function SignUpForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -27,8 +27,21 @@ export default function SignUpPage() {
 
     if (data.user?.identities?.length === 0) {
       setConfirmationSent(true)
+    } else if (data.user && data.session) {
+      const res = await fetch('/api/role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken: data.session.access_token, role: role === 'organizer' ? 'organizer' : 'customer' }),
+      })
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        setError(body?.error ?? 'Could not set your account role. Please try again.')
+        return
+      }
+
+      router.push(role === 'organizer' ? '/onboarding/organizer-profile' : '/onboarding/attendee-profile')
     } else if (data.user) {
-      await supabase.from('profiles').update({ role }).eq('id', data.user.id)
       router.push(role === 'organizer' ? '/onboarding/organizer-profile' : '/onboarding/attendee-profile')
     }
   }
@@ -62,5 +75,13 @@ export default function SignUpPage() {
       {error && <p style={{ color: 'red' }}>{error}</p>}
       <button type="submit" style={{ padding: '8px 16px' }}>Create account</button>
     </form>
+  )
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignUpForm />
+    </Suspense>
   )
 }

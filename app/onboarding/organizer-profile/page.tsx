@@ -31,7 +31,10 @@ export default function OrganizerProfilePage() {
     setError('')
 
     const { data: { session } } = await supabase.auth.getSession()
-    if (!session) return
+    if (!session) {
+      setError('You must be signed in to save your organizer profile.')
+      return
+    }
 
     const { error: insertError } = await supabase
       .from('organizer_profiles')

@@ -4,6 +4,7 @@ import { use, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { checkoutOrder } from '@/lib/services/payments'
 
 type Tier = {
   id: string
@@ -57,14 +58,14 @@ export default function CheckoutPage({ params }: { params: Promise<{ id: string 
         return
       }
 
-      const { data: tierData } = await supabase
+      const { data: tierData, error: tierError } = await supabase
         .from('purchasable_ticket_tiers')
-        .select('*')
+        .select('id, event_id, name, description, price, quantity_remaining, color, benefits, max_per_order, max_group_size')
         .eq('id', tierId)
         .eq('event_id', id)
-        .single()
+        .maybeSingle()
 
-      if (!tierData) {
+      if (tierError || !tierData) {
         setNotAvailable(true)
         setLoading(false)
         return
@@ -72,11 +73,17 @@ export default function CheckoutPage({ params }: { params: Promise<{ id: string 
 
       setTier(tierData as Tier)
 
-      const { data: pmData } = await supabase
+      const { data: pmData, error: pmError } = await supabase
         .from('event_payment_methods')
-        .select('*')
+        .select('id, method_type, provider, account_name, account_number, instructions')
         .eq('event_id', id)
         .eq('is_active', true)
+
+      if (pmError) {
+        setNotAvailable(true)
+        setLoading(false)
+        return
+      }
 
       setPaymentMethods((pmData ?? []) as PaymentMethod[])
       if (pmData && pmData.length > 0) {
@@ -96,6 +103,10 @@ export default function CheckoutPage({ params }: { params: Promise<{ id: string 
     e.preventDefault()
     setError('')
 
+    if (!tierId) {
+      setError('Please select a ticket tier.')
+      return
+    }
     if (!selectedPmId) {
       setError('Please select a payment method.')
       return
@@ -114,78 +125,17 @@ export default function CheckoutPage({ params }: { params: Promise<{ id: string 
     }
     const userId = session.user.id
 
-    // Step a: create the order
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .insert({
-        user_id: userId,
-        event_id: id,
-        ticket_tier_id: tierId,
-        quantity,
-        total_price: totalPrice,
-        status: 'pending_payment',
-      })
-      .select('id')
-      .single()
+    const result = await checkoutOrder({
+      userId,
+      eventId: id,
+      tierId,
+      quantity,
+      file: proofFile,
+      referenceNumber,
+    })
 
-    if (orderError || !order) {
-      setError(orderError?.message ?? 'Failed to create order.')
-      setSubmitting(false)
-      return
-    }
-
-    // Step b: upload proof image to Supabase Storage
-    const storagePath = `${userId}/${order.id}-${proofFile.name}`
-
-    const { error: uploadError } = await supabase.storage
-      .from('payment-proofs')
-      .upload(storagePath, proofFile, { contentType: proofFile.type })
-
-    if (uploadError) {
-      setError(uploadError.message)
-      setSubmitting(false)
-      return
-    }
-
-    // Step c: create the payment row
-    const { data: payment, error: paymentError } = await supabase
-      .from('payments')
-      .insert({
-        order_id: order.id,
-        amount: totalPrice,
-      })
-      .select('id')
-      .single()
-
-    if (paymentError || !payment) {
-      setError(paymentError?.message ?? 'Failed to record payment.')
-      setSubmitting(false)
-      return
-    }
-
-    // Step d: create the payment proof row
-    const { error: proofError } = await supabase
-      .from('payment_proofs')
-      .insert({
-        payment_id: payment.id,
-        image_url: storagePath,
-        reference_number: referenceNumber.trim() || null,
-      })
-
-    if (proofError) {
-      setError(proofError.message)
-      setSubmitting(false)
-      return
-    }
-
-    // Step e: update order status
-    const { error: updateError } = await supabase
-      .from('orders')
-      .update({ status: 'pending_verification' })
-      .eq('id', order.id)
-
-    if (updateError) {
-      setError(updateError.message)
+    if (!result.ok) {
+      setError(result.error)
       setSubmitting(false)
       return
     }

@@ -1,3 +1,6 @@
+'use client'
+
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 
@@ -6,24 +9,8 @@ type Event = {
   title: string
   event_date: string
   location: string
+  city_id: string | null
   ticket_tiers: { price: number }[]
-}
-
-async function getLiveEvents(): Promise<Event[]> {
-  const { data, error } = await supabase
-    .from('events')
-    .select(`
-      id, title, event_date, location,
-      ticket_tiers ( price )
-    `)
-    .order('event_date', { ascending: true })
-
-  if (error) {
-    console.error('Failed to fetch events:', error.message)
-    return []
-  }
-
-  return (data ?? []) as Event[]
 }
 
 function formatPrice(tiers: { price: number }[]): string {
@@ -43,8 +30,79 @@ function formatDate(iso: string): string {
   })
 }
 
-export default async function DiscoverPage() {
-  const events = await getLiveEvents()
+export default function DiscoverPage() {
+  const [events, setEvents] = useState<Event[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const load = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      let viewerCityId: string | null = null
+      let viewerInterestIds: string[] = []
+
+      if (session) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('location')
+          .eq('id', session.user.id)
+          .single()
+        viewerCityId = profile?.location ?? null
+
+        const { data: interests } = await supabase
+          .from('user_interests')
+          .select('interest_id')
+          .eq('user_id', session.user.id)
+        viewerInterestIds = (interests ?? []).map(i => i.interest_id)
+      }
+
+      const { data, error } = await supabase
+        .from('events')
+        .select(`id, title, event_date, location, city_id, ticket_tiers ( price )`)
+        .eq('status', 'published')
+        .gte('event_date', new Date().toISOString())
+        .order('event_date', { ascending: true })
+
+      if (error || !data) {
+        setEvents([])
+        setLoading(false)
+        return
+      }
+
+      const eventIds = data.map(e => e.id)
+      const eventInterestMap = new Map<string, string[]>()
+      if (eventIds.length > 0) {
+        const { data: eventInterests } = await supabase
+          .from('event_interests')
+          .select('event_id, interest_id')
+          .in('event_id', eventIds)
+        for (const row of eventInterests ?? []) {
+          const list = eventInterestMap.get(row.event_id) ?? []
+          list.push(row.interest_id)
+          eventInterestMap.set(row.event_id, list)
+        }
+      }
+
+      const scored = (data as Event[]).map(event => {
+        let score = 0
+        if (viewerCityId && event.city_id === viewerCityId) score += 1
+        const eventInterests = eventInterestMap.get(event.id) ?? []
+        if (eventInterests.some(id => viewerInterestIds.includes(id))) score += 1
+        return { event, score }
+      })
+
+      scored.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score
+        return new Date(a.event.event_date).getTime() - new Date(b.event.event_date).getTime()
+      })
+
+      setEvents(scored.map(s => s.event))
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  if (loading) return <p style={{ maxWidth: 720, margin: '40px auto', padding: '0 16px' }}>Loading...</p>
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', padding: '40px 16px' }}>

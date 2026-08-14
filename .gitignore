@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local tooling config (contains its own node_modules)
+.opencode/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

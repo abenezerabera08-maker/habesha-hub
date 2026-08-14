@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Home, Heart, Ticket, User, LayoutDashboard, QrCode } from 'lucide-react'
+import { Home, Ticket, User, LayoutDashboard, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -29,13 +29,16 @@ export default function BottomNav() {
 
   const navItems = [
     { label: 'Discover', href: '/', icon: Home },
-    { label: 'Saved', href: '/saved', icon: Heart },
     { label: 'Tickets', href: '/my-tickets', icon: Ticket },
     { label: 'Account', href: '/account', icon: User },
     ...(role === 'organizer'
       ? [
           { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-          { label: 'Scanner', href: '/dashboard/scanner', icon: QrCode },
+        ]
+      : []),
+    ...(role === 'admin'
+      ? [
+          { label: 'Admin', href: '/admin', icon: ShieldCheck },
         ]
       : []),
   ]

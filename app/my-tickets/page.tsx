@@ -37,14 +37,10 @@ type Order = {
   rejection_reason: string | null
 }
 
-type VerificationNote = {
-  payment_id: string
-  notes: string | null
-}
-
 export default function MyTicketsPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const router = useRouter()
 
   useEffect(() => {
@@ -60,17 +56,15 @@ export default function MyTicketsPage() {
         .select('id, event_id, ticket_tier_id, quantity, total_price, status, created_at')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: false })
-
-      console.log('[my-tickets] orders query:', { orderData, orderError })
+        .limit(50)
 
       if (orderError) {
-        console.error('[my-tickets] orders error:', orderError.message)
+        setError('Failed to load your orders. Please try again.')
         setLoading(false)
         return
       }
 
       const rawOrders = (orderData ?? []) as OrderRow[]
-      console.log('[my-tickets] raw orders:', rawOrders)
 
       if (rawOrders.length === 0) {
         setOrders([])
@@ -86,23 +80,38 @@ export default function MyTicketsPage() {
         supabase.from('ticket_tiers').select('id, name').in('id', tierIds),
       ])
 
-      console.log('[my-tickets] events lookup:', eventsRes)
-      console.log('[my-tickets] tiers lookup:', tiersRes)
+      if (eventsRes.error || tiersRes.error) {
+        setError('Failed to load event details. Please try again.')
+        setLoading(false)
+        return
+      }
 
       const eventMap = new Map((eventsRes.data ?? []).map((e: EventRow) => [e.id, e]))
       const tierMap = new Map((tiersRes.data ?? []).map((t: TierRow) => [t.id, t]))
 
-      const { data: paymentsData } = await supabase
+      const { data: paymentsData, error: paymentsError } = await supabase
         .from('payments')
         .select('id, order_id')
         .in('order_id', rawOrders.map((o) => o.id))
 
-      const { data: verificationsData } = await supabase
+      if (paymentsError) {
+        setError('Failed to load payment details. Please try again.')
+        setLoading(false)
+        return
+      }
+
+      const { data: verificationsData, error: verificationsError } = await supabase
         .from('payment_verifications')
         .select('payment_id, notes, created_at')
         .in('payment_id', (paymentsData ?? []).map((p) => p.id))
         .eq('decision', 'rejected')
         .order('created_at', { ascending: false })
+
+      if (verificationsError) {
+        setError('Failed to load payment details. Please try again.')
+        setLoading(false)
+        return
+      }
 
       const paymentToOrder = new Map((paymentsData ?? []).map((p) => [p.id, p.order_id]))
       const orderRejectionMap = new Map<string, string>()
@@ -124,7 +133,6 @@ export default function MyTicketsPage() {
         rejection_reason: orderRejectionMap.get(r.id) ?? null,
       }))
 
-      console.log('[my-tickets] merged orders:', merged)
       setOrders(merged)
       setLoading(false)
     }
@@ -137,6 +145,8 @@ export default function MyTicketsPage() {
   return (
     <div style={{ maxWidth: 640, margin: '40px auto', padding: '0 16px' }}>
       <h1>My Tickets</h1>
+
+      {error && <p style={{ color: '#c00', marginTop: 12 }}>{error}</p>}
 
       {orders.length === 0 ? (
         <p>No tickets yet.</p>
@@ -173,7 +183,7 @@ export default function MyTicketsPage() {
                 {order.tier?.name} &times; {order.quantity}
               </p>
               <p style={{ margin: '4px 0', fontWeight: 600 }}>
-                ${order.total_price.toFixed(2)}
+                {order.total_price.toFixed(2)} ETB
               </p>
               {order.status === 'pending_verification' && (
                 <p style={{ margin: '4px 0', color: '#a16207', fontWeight: 600 }}>

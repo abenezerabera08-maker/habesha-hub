@@ -3,6 +3,9 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { requireRole } from '@/lib/auth'
+import { createEvent, type TierRow, type PaymentMethodRow } from '@/lib/services/events'
+import { validateEvent } from '@/lib/validation'
 
 type PaymentMethod = {
   method_type: string
@@ -51,12 +54,20 @@ function toUTCISOString(localDateTimeStr: string): string | null {
   return new Date(localDateTimeStr).toISOString()
 }
 
+function needsProvider(pm: PaymentMethod) {
+  return pm.method_type === 'bank_transfer' || pm.method_type === 'other'
+}
+
 export default function CreateEventPage() {
   const [loading, setLoading] = useState(true)
   const [isOrganizer, setIsOrganizer] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [location, setLocation] = useState('')
+  const [cityId, setCityId] = useState('')
+  const [cities, setCities] = useState<{ id: string; name: string }[]>([])
+  const [allInterests, setAllInterests] = useState<{ id: string; name: string }[]>([])
+  const [selectedInterests, setSelectedInterests] = useState<Set<string>>(new Set())
   const [eventDate, setEventDate] = useState('')
   const [tiers, setTiers] = useState<TicketTier[]>([emptyTicketTier()])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([emptyPaymentMethod()])
@@ -65,142 +76,85 @@ export default function CreateEventPage() {
 
   useEffect(() => {
     const checkAccess = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        router.push('/login')
-        return
-      }
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', session.user.id)
-        .single()
-
-      if (profile?.role !== 'organizer') {
-        setError('Only organizers can create events.')
-        setLoading(false)
-        return
-      }
+      const session = await requireRole('organizer', (href) => router.replace(href))
+      if (!session) return
       setIsOrganizer(true)
+
+      const { data: citiesData } = await supabase
+        .from('cities')
+        .select('id, name')
+        .eq('is_active', true)
+        .order('name', { ascending: true })
+      setCities((citiesData ?? []) as { id: string; name: string }[])
+
+      const { data: interestsData } = await supabase
+        .from('interests')
+        .select('id, name')
+        .order('name', { ascending: true })
+      setAllInterests((interestsData ?? []) as { id: string; name: string }[])
+
       setLoading(false)
     }
     checkAccess()
   }, [router])
 
-  const isValidName = (v: string) => /^[A-Za-z ]+$/.test(v.trim())
-  const isValidNumber = (v: string) => /^\d+$/.test(v.trim())
-  const needsProvider = (pm: PaymentMethod) =>
-    pm.method_type === 'bank_transfer' || pm.method_type === 'other'
+  const buildTierRows = (): TierRow[] =>
+    tiers.map((t) => ({
+      name: t.name.trim(),
+      description: t.description.trim(),
+      price: parseFloat(t.price),
+      quantity_available: parseInt(t.quantity_available, 10),
+      sale_start: toUTCISOString(t.sale_start),
+      sale_end: toUTCISOString(t.sale_end),
+      max_per_order: t.max_per_order ? parseInt(t.max_per_order, 10) : null,
+      max_group_size: t.max_group_size ? parseInt(t.max_group_size, 10) : null,
+      color: t.color.trim() || null,
+      benefits: t.benefits.map((b) => b.trim()).filter((b) => b !== ''),
+    }))
 
-  const filledPaymentMethods = paymentMethods.filter(
-    (pm) => isValidName(pm.account_name) && isValidNumber(pm.account_number)
-  )
-
-  const isTierFilled = (t: TicketTier) => {
-    const nameOk = t.name !== ''
-    const priceOk = t.price.trim() !== '' && parseFloat(t.price) >= 0
-    const qtyOk = t.quantity_available.trim() !== '' && parseInt(t.quantity_available) > 0
-    if (!nameOk || !priceOk || !qtyOk) return false
-    if (t.name === 'Jema (Group Ticket)') {
-      return t.max_group_size.trim() !== '' && parseInt(t.max_group_size) > 1
-    }
-    return true
-  }
-
-  const filledTiers = tiers.filter(isTierFilled)
+  const buildPaymentMethodRows = (): PaymentMethodRow[] =>
+    paymentMethods.map((pm) => ({
+      method_type: pm.method_type,
+      provider: pm.provider.trim() || null,
+      account_name: pm.account_name.trim(),
+      account_number: pm.account_number.trim(),
+      instructions: pm.instructions.trim() || null,
+    }))
 
   const handleCreateEvent = async (e: React.FormEvent, submitStatus: 'draft' | 'pending_review') => {
     e.preventDefault()
     setError('')
 
-    // Validate tiers first
-    const firstInvalidTier = tiers.findIndex((t) => !isTierFilled(t))
-    if (firstInvalidTier !== -1) {
-      setError(`Ticket type ${firstInvalidTier + 1} has validation errors — name, price (>= 0), and quantity (> 0) are required. Jema tiers also require a group size > 1.`)
-      return
-    }
-
-    if (filledTiers.length === 0) {
-      setError('Please add at least one ticket type with a name, price, and quantity.')
-      return
-    }
-
-    // Then validate payment methods
-    const firstInvalidPm = paymentMethods.findIndex((pm) => {
-      const nameInvalid = !isValidName(pm.account_name)
-      const numberInvalid = !isValidNumber(pm.account_number)
-      const providerInvalid = needsProvider(pm) && pm.provider.trim() === ''
-      return nameInvalid || numberInvalid || providerInvalid
+    const validationErrors = validateEvent({
+      title,
+      location,
+      eventDate,
+      tiers,
+      paymentMethods,
     })
-    if (firstInvalidPm !== -1) {
-      setError(`Payment method ${firstInvalidPm + 1} has validation errors — please check the highlighted fields.`)
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join(' '))
       return
     }
 
-    if (filledPaymentMethods.length === 0) {
-      setError('Please add at least one complete payment method.')
-      return
-    }
-
-    const { data: { session } } = await supabase.auth.getSession()
+    const session = await requireRole('organizer', (href) => router.replace(href))
     if (!session) return
 
-    // Step 1: create the event
-    const { data: event, error: eventError } = await supabase
-      .from('events')
-      .insert({
-        organizer_id: session.user.id,
-        title,
-        description,
-        location,
-        event_date: eventDate,
-        status: submitStatus,
-      })
-      .select()
-      .single()
+    const result = await createEvent({
+      organizerId: session.userId,
+      title,
+      description,
+      location,
+      cityId,
+      eventDate: new Date(eventDate).toISOString(),
+      status: submitStatus,
+      tiers: buildTierRows(),
+      paymentMethods: buildPaymentMethodRows(),
+      interestIds: [...selectedInterests],
+    })
 
-    if (eventError) {
-      setError(eventError.message)
-      return
-    }
-
-    // Step 2: create the ticket tiers, linked to that event
-    const { error: tierError } = await supabase.from('ticket_tiers').insert(
-      filledTiers.map((t, i) => ({
-        event_id: event.id,
-        name: t.name.trim(),
-        description: t.description.trim() || null,
-        price: parseFloat(t.price),
-        quantity_available: parseInt(t.quantity_available),
-        display_order: i,
-        sale_start: toUTCISOString(t.sale_start),
-        sale_end: toUTCISOString(t.sale_end),
-        max_per_order: t.max_per_order ? parseInt(t.max_per_order) : null,
-        max_group_size: t.max_group_size ? parseInt(t.max_group_size) : null,
-        color: t.color || null,
-        benefits: t.benefits.length > 0 ? t.benefits : null,
-      }))
-    )
-
-    if (tierError) {
-      setError(tierError.message)
-      return
-    }
-
-    // Step 3: insert payment methods
-    const { error: pmError } = await supabase.from('event_payment_methods').insert(
-      filledPaymentMethods.map((pm) => ({
-        event_id: event.id,
-        method_type: pm.method_type,
-        provider: pm.provider.trim() || null,
-        account_name: pm.account_name.trim(),
-        account_number: pm.account_number.trim(),
-        instructions: pm.instructions.trim() || null,
-      }))
-    )
-
-    if (pmError) {
-      setError(pmError.message)
+    if (!result.ok) {
+      setError(result.error)
       return
     }
 
@@ -217,6 +171,47 @@ export default function CreateEventPage() {
         <input type="text" placeholder="Event title" value={title} onChange={(e) => setTitle(e.target.value)} required />
         <textarea placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
         <input type="text" placeholder="Location" value={location} onChange={(e) => setLocation(e.target.value)} required />
+        <label style={{ display: 'block', marginBottom: 12 }}>
+          City
+          <select value={cityId} onChange={(e) => setCityId(e.target.value)} required style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }}>
+            <option value="" disabled>Select a city</option>
+            {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: 'block', marginBottom: 8 }}>Interests (optional)</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {allInterests.map((interest) => {
+              const isSelected = selectedInterests.has(interest.id)
+              return (
+                <button
+                  key={interest.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedInterests(prev => {
+                      const next = new Set(prev)
+                      if (next.has(interest.id)) next.delete(interest.id)
+                      else next.add(interest.id)
+                      return next
+                    })
+                  }}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 20,
+                    border: '1px solid',
+                    borderColor: isSelected ? '#171717' : '#ccc',
+                    background: isSelected ? '#171717' : '#fff',
+                    color: isSelected ? '#fff' : '#171717',
+                    cursor: 'pointer',
+                    fontSize: 13,
+                  }}
+                >
+                  {interest.name}
+                </button>
+              )
+            })}
+          </div>
+        </div>
         <input type="datetime-local" value={eventDate} onChange={(e) => setEventDate(e.target.value)} required />
 
         <p style={{ fontSize: 13, color: '#555', marginTop: 8, marginBottom: 8 }}>
@@ -556,9 +551,8 @@ export default function CreateEventPage() {
                 placeholder="Account holder name"
                 value={pm.account_name}
                 onChange={(e) => {
-                  const letters = e.target.value.replace(/[^A-Za-z ]/g, '')
                   const updated = [...paymentMethods]
-                  updated[index].account_name = letters
+                  updated[index].account_name = e.target.value
                   setPaymentMethods(updated)
                 }}
                 required
@@ -566,7 +560,7 @@ export default function CreateEventPage() {
               />
               {pm.account_name.trim() === '' && (
                 <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: '#c00' }}>
-                  Account name must contain letters only
+                  Account name is required
                 </span>
               )}
             </label>
@@ -575,15 +569,12 @@ export default function CreateEventPage() {
               Account number
               <input
                 type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
                 id={`account-number-input-${index}`}
                 placeholder="Account or phone number"
                 value={pm.account_number}
                 onChange={(e) => {
-                  const digits = e.target.value.replace(/\D/g, '')
                   const updated = [...paymentMethods]
-                  updated[index].account_number = digits
+                  updated[index].account_number = e.target.value
                   setPaymentMethods(updated)
                 }}
                 required
@@ -591,7 +582,7 @@ export default function CreateEventPage() {
               />
               {pm.account_number.trim() === '' && (
                 <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: '#c00' }}>
-                  Account number must contain digits only
+                  Account or phone number is required
                 </span>
               )}
             </label>

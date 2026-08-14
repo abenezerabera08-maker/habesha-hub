@@ -16,7 +16,7 @@ async function getEvent(id: string) {
 async function getTicketTiers(eventId: string) {
   const { data, error } = await supabase
     .from('purchasable_ticket_tiers')
-    .select('*')
+    .select('id, event_id, name, description, price, quantity_remaining, color, benefits, max_per_order, max_group_size')
     .eq('event_id', eventId)
 
   if (error) return []

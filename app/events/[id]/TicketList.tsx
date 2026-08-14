@@ -49,7 +49,7 @@ export default function TicketList({
     const fetchTiers = async () => {
       const { data } = await supabase
         .from('purchasable_ticket_tiers')
-        .select('*')
+        .select('id, event_id, name, description, price, quantity_remaining, color, benefits, max_per_order, max_group_size')
         .eq('event_id', eventId)
       if (data) setTiers(data)
     }

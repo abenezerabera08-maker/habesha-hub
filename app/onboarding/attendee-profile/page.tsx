@@ -42,15 +42,24 @@ export default function AttendeeProfilePage() {
     setError('')
 
     const { data: { session } } = await supabase.auth.getSession()
-    if (!session) return
+    if (!session) {
+      setError('You must be signed in to complete your profile.')
+      return
+    }
 
     const { error: updateError } = await supabase
       .from('profiles')
       .update({ full_name: fullName, location })
       .eq('id', session.user.id)
+      .select('id')
+      .single()
 
     if (updateError) {
-      setError(updateError.message)
+      setError(
+        updateError.message.includes('JSON object requested')
+          ? 'Your profile could not be updated. Please try signing out and in again.'
+          : updateError.message
+      )
       return
     }
 

@@ -3,6 +3,16 @@
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { requireRole } from '@/lib/auth'
+import {
+  updateEventDetails,
+  submitEventForReview,
+  replaceTiers,
+  replacePaymentMethods,
+  type TierRow,
+  type PaymentMethodRow,
+} from '@/lib/services/events'
+import { validateEvent } from '@/lib/validation'
 
 type PaymentMethod = {
   method_type: string
@@ -51,26 +61,22 @@ function toUTCISOString(localDateTimeStr: string): string | null {
   return new Date(localDateTimeStr).toISOString()
 }
 
-const statusColor: Record<string, string> = {
-  draft: '#888',
-  pending_review: '#a16207',
-  published: '#15803d',
-  rejected: '#b91c1c',
-  archived: '#555',
-}
-
 export default function EditEventPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [event, setEvent] = useState<{ id: string; title: string; status: string } | null>(null)
-  const [submitting, setSubmitting] = useState(false)
+  const [event, setEvent] = useState<{ id: string; title: string; status: string; rejection_reason: string | null } | null>(null)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [location, setLocation] = useState('')
+  const [cityId, setCityId] = useState('')
+  const [cities, setCities] = useState<{ id: string; name: string }[]>([])
+  const [allInterests, setAllInterests] = useState<{ id: string; name: string }[]>([])
+  const [selectedInterests, setSelectedInterests] = useState<Set<string>>(new Set())
   const [eventDate, setEventDate] = useState('')
   const [saving, setSaving] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [tiers, setTiers] = useState<TicketTier[]>([])
@@ -80,15 +86,12 @@ export default function EditEventPage() {
 
   useEffect(() => {
     const load = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        router.push('/login')
-        return
-      }
+      const session = await requireRole('organizer', (href) => router.replace(href))
+      if (!session) return
 
       const { data, error: fetchError } = await supabase
         .from('events')
-        .select('id, title, status, organizer_id, description, location, event_date')
+        .select('id, title, status, organizer_id, description, location, event_date, city_id, rejection_reason')
         .eq('id', id)
         .single()
 
@@ -98,17 +101,37 @@ export default function EditEventPage() {
         return
       }
 
-      if (data.organizer_id !== session.user.id) {
+      if (data.organizer_id !== session.userId) {
         setError("You don't have permission to manage this event.")
         setLoading(false)
         return
       }
 
-      setEvent({ id: data.id, title: data.title, status: data.status })
+      setEvent({ id: data.id, title: data.title, status: data.status, rejection_reason: data.rejection_reason })
       setTitle(data.title)
       setDescription(data.description ?? '')
       setLocation(data.location ?? '')
+      setCityId(data.city_id ?? '')
       setEventDate(new Date(data.event_date).toISOString().slice(0, 16))
+
+      const { data: citiesData } = await supabase
+        .from('cities')
+        .select('id, name')
+        .eq('is_active', true)
+        .order('name', { ascending: true })
+      setCities((citiesData ?? []) as { id: string; name: string }[])
+
+      const { data: interestsData } = await supabase
+        .from('interests')
+        .select('id, name')
+        .order('name', { ascending: true })
+      setAllInterests((interestsData ?? []) as { id: string; name: string }[])
+
+      const { data: eventInterestRows } = await supabase
+        .from('event_interests')
+        .select('interest_id')
+        .eq('event_id', data.id)
+      setSelectedInterests(new Set((eventInterestRows ?? []).map((r) => r.interest_id)))
 
       const { data: tierRows } = await supabase
         .from('ticket_tiers')
@@ -153,14 +176,19 @@ export default function EditEventPage() {
     load()
   }, [id, router])
 
+  const needsReReview = event?.status === 'published' || event?.status === 'pending_review'
+
   const handleSubmitForReview = async () => {
     if (!event) return
     setSubmitting(true)
+    setSaveError('')
 
-    await supabase
-      .from('events')
-      .update({ status: 'pending_review' })
-      .eq('id', event.id)
+    const result = await submitEventForReview(event.id)
+    if (!result.ok) {
+      setSaveError(result.error)
+      setSubmitting(false)
+      return
+    }
 
     setEvent({ ...event, status: 'pending_review' })
     setSubmitting(false)
@@ -171,93 +199,96 @@ export default function EditEventPage() {
     setSaveError('')
     setSaveSuccess(false)
 
-    const { error: eventError } = await supabase
-      .from('events')
-      .update({
-        title: title.trim(),
-        description: description.trim() || null,
-        location: location.trim(),
-        event_date: new Date(eventDate).toISOString(),
-      })
-      .eq('id', id)
-
-    if (eventError) {
-      setSaveError(eventError.message)
+    const validationErrors = validateEvent({
+      title,
+      location,
+      eventDate,
+      tiers,
+      paymentMethods,
+    })
+    if (validationErrors.length > 0) {
+      setSaveError(validationErrors.join(' '))
       setSaving(false)
       return
     }
 
-    setEvent(event ? { ...event, title: title.trim() } : event)
+    const session = await requireRole('organizer', (href) => router.replace(href))
+    if (!session) return
 
-    if (event?.status === 'draft') {
-      for (let i = 0; i < tiers.length; i++) {
-        const t = tiers[i]
-        const row = {
-          name: t.name.trim(),
-          description: t.description.trim() || null,
-          price: parseFloat(t.price),
-          quantity_available: parseInt(t.quantity_available),
-          display_order: i,
-          sale_start: toUTCISOString(t.sale_start),
-          sale_end: toUTCISOString(t.sale_end),
-          max_per_order: t.max_per_order ? parseInt(t.max_per_order) : null,
-          max_group_size: t.max_group_size ? parseInt(t.max_group_size) : null,
-          color: t.color || null,
-          benefits: t.benefits.length > 0 ? t.benefits : null,
-        }
+    const details = await updateEventDetails(id, {
+      title,
+      description,
+      location,
+      cityId,
+      eventDate: new Date(eventDate).toISOString(),
+      interestIds: [...selectedInterests],
+      status: needsReReview ? 'pending_review' : undefined,
+    })
+    if (!details.ok) {
+      setSaveError(details.error)
+      setSaving(false)
+      return
+    }
 
-        const existingId = tierIds[i]
-        if (existingId) {
-          const { error } = await supabase.from('ticket_tiers').update(row).eq('id', existingId)
-          if (error) { setSaveError(error.message); setSaving(false); return }
-        } else {
-          const { data: inserted, error } = await supabase
-            .from('ticket_tiers')
-            .insert({ ...row, event_id: event!.id })
-            .select('id')
-            .single()
-          if (error) { setSaveError(error.message); setSaving(false); return }
-          if (inserted) {
-            const newIds = [...tierIds]
-            newIds[i] = inserted.id
-            setTierIds(newIds)
-          }
-        }
+    setEvent((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        title: title.trim(),
+        ...(needsReReview ? { status: 'pending_review' } : {}),
+      }
+    })
+
+    if (event?.status === 'draft' || event?.status === 'rejected') {
+      const tierResult = await replaceTiers(
+        event.id,
+        buildTierRows(),
+        tierIds
+      )
+      if (!tierResult.ok) {
+        setSaveError(tierResult.error)
+        setSaving(false)
+        return
       }
 
-      for (let i = 0; i < paymentMethods.length; i++) {
-        const pm = paymentMethods[i]
-        const row = {
-          method_type: pm.method_type,
-          provider: pm.provider.trim() || null,
-          account_name: pm.account_name.trim(),
-          account_number: pm.account_number.trim(),
-          instructions: pm.instructions.trim() || null,
-        }
-
-        const existingId = paymentMethodIds[i]
-        if (existingId) {
-          const { error } = await supabase.from('event_payment_methods').update(row).eq('id', existingId)
-          if (error) { setSaveError(error.message); setSaving(false); return }
-        } else {
-          const { data: inserted, error } = await supabase
-            .from('event_payment_methods')
-            .insert({ ...row, event_id: event!.id })
-            .select('id')
-            .single()
-          if (error) { setSaveError(error.message); setSaving(false); return }
-          if (inserted) {
-            const newIds = [...paymentMethodIds]
-            newIds[i] = inserted.id
-            setPaymentMethodIds(newIds)
-          }
-        }
+      const pmResult = await replacePaymentMethods(
+        event.id,
+        buildPaymentMethodRows(),
+        paymentMethodIds
+      )
+      if (!pmResult.ok) {
+        setSaveError(pmResult.error)
+        setSaving(false)
+        return
       }
     }
 
     setSaveSuccess(true)
     setSaving(false)
   }
+
+  const buildTierRows = (): TierRow[] =>
+    tiers.map((t) => ({
+      name: t.name.trim(),
+      description: t.description.trim(),
+      price: parseFloat(t.price),
+      quantity_available: parseInt(t.quantity_available, 10),
+      sale_start: toUTCISOString(t.sale_start),
+      sale_end: toUTCISOString(t.sale_end),
+      max_per_order: t.max_per_order ? parseInt(t.max_per_order, 10) : null,
+      max_group_size: t.max_group_size ? parseInt(t.max_group_size, 10) : null,
+      color: t.color.trim() || null,
+      benefits: t.benefits.map((b) => b.trim()).filter((b) => b !== ''),
+    }))
+
+  const buildPaymentMethodRows = (): PaymentMethodRow[] =>
+    paymentMethods.map((pm) => ({
+      method_type: pm.method_type,
+      provider: pm.provider.trim() || null,
+      account_name: pm.account_name.trim(),
+      account_number: pm.account_number.trim(),
+      instructions: pm.instructions.trim() || null,
+    }))
 
   if (loading) return <p>Loading...</p>
   if (error) return <p>{error}</p>
@@ -282,12 +313,53 @@ export default function EditEventPage() {
           <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} required style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }} />
         </label>
         <label style={{ display: 'block', marginBottom: 12 }}>
+          City
+          <select value={cityId} onChange={(e) => setCityId(e.target.value)} required style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }}>
+            <option value="" disabled>Select a city</option>
+            {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: 'block', marginBottom: 8 }}>Interests (optional)</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {allInterests.map((interest) => {
+              const isSelected = selectedInterests.has(interest.id)
+              return (
+                <button
+                  key={interest.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedInterests(prev => {
+                      const next = new Set(prev)
+                      if (next.has(interest.id)) next.delete(interest.id)
+                      else next.add(interest.id)
+                      return next
+                    })
+                  }}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 20,
+                    border: '1px solid',
+                    borderColor: isSelected ? '#171717' : '#ccc',
+                    background: isSelected ? '#171717' : '#fff',
+                    color: isSelected ? '#fff' : '#171717',
+                    cursor: 'pointer',
+                    fontSize: 13,
+                  }}
+                >
+                  {interest.name}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        <label style={{ display: 'block', marginBottom: 12 }}>
           Event date
           <input type="datetime-local" value={eventDate} onChange={(e) => setEventDate(e.target.value)} required style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }} />
         </label>
       </div>
 
-      {event.status === 'draft' ? (
+      {event.status === 'draft' || event.status === 'rejected' ? (
         <>
           <div style={{ marginTop: 24 }}>
             <h3>Ticket Info</h3>
@@ -633,9 +705,8 @@ export default function EditEventPage() {
                     placeholder="Account holder name"
                     value={pm.account_name}
                     onChange={(e) => {
-                      const letters = e.target.value.replace(/[^A-Za-z ]/g, '')
                       const updated = [...paymentMethods]
-                      updated[index].account_name = letters
+                      updated[index].account_name = e.target.value
                       setPaymentMethods(updated)
                     }}
                     required
@@ -643,24 +714,21 @@ export default function EditEventPage() {
                   />
                   {pm.account_name.trim() === '' && (
                     <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: '#c00' }}>
-                      Account name must contain letters only
+                      Account name is required
                     </span>
                   )}
                 </label>
 
                 <label style={{ display: 'block', marginBottom: 12 }}>
                   Account number
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    id={`account-number-input-${index}`}
-                    placeholder="Account or phone number"
+                <input
+                  type="text"
+                  id={`account-number-input-${index}`}
+                  placeholder="Account or phone number"
                     value={pm.account_number}
                     onChange={(e) => {
-                      const digits = e.target.value.replace(/\D/g, '')
                       const updated = [...paymentMethods]
-                      updated[index].account_number = digits
+                      updated[index].account_number = e.target.value
                       setPaymentMethods(updated)
                     }}
                     required
@@ -668,7 +736,7 @@ export default function EditEventPage() {
                   />
                   {pm.account_number.trim() === '' && (
                     <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: '#c00' }}>
-                      Account number must contain digits only
+                      Account or phone number is required
                     </span>
                   )}
                 </label>
@@ -739,17 +807,28 @@ export default function EditEventPage() {
           {saving ? 'Saving\u2026' : 'Save Changes'}
         </button>
         {saveError && <p style={{ color: '#c00', marginTop: 8 }}>{saveError}</p>}
-        {saveSuccess && <p style={{ color: '#15803d', marginTop: 8 }}>Saved successfully.</p>}
+        {saveSuccess && (
+          <p style={{ color: '#15803d', marginTop: 8 }}>
+            {needsReReview
+              ? 'Saved — this event has been resubmitted for review since it was previously live.'
+              : 'Saved successfully.'}
+          </p>
+        )}
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 32, paddingTop: 16, borderTop: '1px solid #eee' }}>
         <div>
+          {event.status === 'rejected' && event.rejection_reason && (
+            <p style={{ color: '#7f1d1d', fontSize: 13, marginBottom: 8 }}>
+              Rejected: {event.rejection_reason}
+            </p>
+          )}
           <span style={{ color: '#888', fontSize: 13 }}>Status: </span>
           <span style={{ fontWeight: 600 }}>{event.status}</span>
         </div>
-        {event.status === 'draft' ? (
-          <button onClick={handleSubmitForReview} style={{ padding: '10px 20px', background: '#171717', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>
-            Submit for Review
+      {event.status === 'draft' || event.status === 'rejected' ? (
+          <button onClick={handleSubmitForReview} disabled={submitting} style={{ padding: '10px 20px', background: '#171717', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer' }}>
+            {submitting ? 'Submitting\u2026' : 'Submit for Review'}
           </button>
         ) : (
           <span style={{ color: '#888', fontSize: 13 }}>This event is currently {event.status} and does not need to be submitted.</span>

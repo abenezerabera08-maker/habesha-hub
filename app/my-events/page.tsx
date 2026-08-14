@@ -9,6 +9,7 @@ type EventRow = {
   id: string
   title: string
   status: string
+  rejection_reason: string | null
 }
 
 const statusColor: Record<string, string> = {
@@ -47,7 +48,7 @@ export default function MyEventsPage() {
 
       const { data } = await supabase
         .from('events')
-        .select('id, title, status')
+        .select('id, title, status, rejection_reason')
         .eq('organizer_id', session.user.id)
         .order('title', { ascending: true })
 
@@ -102,6 +103,11 @@ export default function MyEventsPage() {
               <div style={{ fontSize: 13, color: statusColor[event.status] ?? '#888', marginTop: 4 }}>
                 {event.status.replace(/_/g, ' ')}
               </div>
+              {event.status === 'rejected' && event.rejection_reason && (
+                <p style={{ fontSize: 13, color: '#7f1d1d', marginTop: 4 }}>
+                  Reason: {event.rejection_reason}
+                </p>
+              )}
             </div>
             <Link
               href={`/events/${event.id}/edit`}

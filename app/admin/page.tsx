@@ -114,6 +114,10 @@ export default function AdminReviewPage() {
     <div style={{ maxWidth: 640, margin: '40px auto', padding: '0 16px' }}>
       <h1>Event Review</h1>
 
+      <Link href="/admin/users" style={{ display: 'inline-block', marginBottom: 16, fontSize: 14, color: '#0066cc' }}>
+        Manage users and admin roles
+      </Link>
+
       {error && <p style={{ color: '#c00', marginTop: 12 }}>{error}</p>}
 
       {events.length === 0 ? (

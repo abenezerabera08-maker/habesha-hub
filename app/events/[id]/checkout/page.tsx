@@ -97,7 +97,7 @@ export default function CheckoutPage({ params }: { params: Promise<{ id: string 
   }, [id, tierId, router])
 
   const totalPrice = tier ? tier.price * quantity : 0
-  const maxQty = tier?.max_per_order ?? 999
+  const maxQty = tier ? Math.min(tier.max_per_order ?? 999, tier.quantity_remaining) : 999
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -132,6 +132,7 @@ export default function CheckoutPage({ params }: { params: Promise<{ id: string 
       quantity,
       file: proofFile,
       referenceNumber,
+      paymentMethodId: selectedPmId,
     })
 
     if (!result.ok) {

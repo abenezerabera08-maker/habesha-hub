@@ -22,6 +22,42 @@ export function isValidMethodType(v: string): boolean {
   return METHOD_TYPES.has(v)
 }
 
+export const MAX_REFERENCE_LENGTH = 120
+export const MAX_PROOF_IMAGE_BYTES = 5 * 1024 * 1024
+
+export const VALID_IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+])
+
+export function imageExtensionForMime(mime: string): string | null {
+  switch (mime) {
+    case 'image/jpeg':
+      return 'jpg'
+    case 'image/png':
+      return 'png'
+    case 'image/webp':
+      return 'webp'
+    case 'image/heic':
+      return 'heic'
+    case 'image/heif':
+      return 'heif'
+    default:
+      return null
+  }
+}
+
+export function validateReferenceNumber(v: string): string | null {
+  const s = sanitizeText(v)
+  if (s.length > MAX_REFERENCE_LENGTH) {
+    return `The reference number must be ${MAX_REFERENCE_LENGTH} characters or fewer.`
+  }
+  return null
+}
+
 export function validateEventDate(iso: string): string | null {
   if (!iso) return 'Event date is required.'
   const d = new Date(iso)

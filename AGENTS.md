@@ -78,10 +78,9 @@ the database silently keeps the old value.
   tickets to appear unavailable for ~3 hours).
 - **Event status lifecycle:** `draft` is the default on creation. From
   `draft`, an organizer can go to `pending_review` via "Submit for Review."
-  There is **no admin review step built yet** — `pending_review` events
-  currently have no reviewer. (Next task: confirm the full set of valid
-  status values via `pg_constraint` or the column's enum type before
-  building the admin approve/reject flow.)
+  Admin review is built (`app/admin/page.tsx`, `lib/services/admin.ts` —
+  `approveEvent`/`rejectEvent`), confirmed working as of the hardening
+  session.
 - **Key routes:**
   - `/my-tickets` — attendee order status (pending/confirmed/rejected +
     rejection reason)
@@ -96,30 +95,34 @@ the database silently keeps the old value.
 - **Bottom nav:** Discover, Saved, Tickets, Account for everyone; Dashboard +
   Scanner added only when `profiles.role === 'organizer'`. No shared auth
   context exists — role is fetched directly in `BottomNav` on mount.
+- **Server API boundary:** Privileged/status mutations run through server
+  routes with a service-role client (`lib/api.ts`: `requireUser`/
+  `requireAdmin`/`runApi`/`adminClient`); client calls them via
+  `lib/apiClient.ts` (`apiFetch`/`apiPost` with the user's bearer token). The
+  service functions in `lib/services/*` are thin wrappers over those routes.
+  RLS is defense-in-depth on top (see lockdown migration). `SUPABASE_SERVICE_ROLE_KEY`
+  must exist in `.env.local` or every API route returns 500.
 - **Organizers buying their own event's tickets is allowed** — not a bug.
 
 ## Open / Next up
 
-1. **Admin approval workflow** (top priority) — needs:
-   - The exact event status enum/check constraint values
-   - How someone becomes admin (new `role` value vs. separate flag) — decided:
-     a real admin role with its own dashboard, same pattern as organizer
-   - What "approve" and "reject" actually set `events.status` to
-   - A notification system (currently nothing is wired up — the bell icon in
-     the UI is decorative only)
-2. **Stage 8.3** — editing a `published`/`pending_review` event should reset
-   it to `pending_review`. Not yet built (waiting on admin workflow to exist
-   first, since nothing is really "published" through review yet).
-3. **Ticket check-in system** (its own future stage) — organizer gets a
+1. **Admin approval workflow** — approve/reject (sets `published` / `rejected`)
+   and admin role assignment are built (see Progress Log). Remaining:
+   - Confirm the event status enum/check constraint in the live DB. Values in
+     code: `draft`, `pending_review`, `published`, `rejected`, `archived`
+     (`archived` is only in the my-events color map; no write path uses it yet)
+   - A notification system (nothing is wired up — the old note about a
+     decorative bell icon was stale; there is no bell icon in the codebase)
+2. **Ticket check-in system** (its own future stage) — organizer gets a
    search page scoped to their event, looks up a TK code, marks it checked;
    a checked code can't be reused; organizer can download the full attendee
    list to check people off manually if there's a connectivity problem at
    the door. Deliberately not QR/camera-based.
-4. **Stage 9** — fuller analytics dashboard (charts, recent sales table)
+3. **Stage 9** — fuller analytics dashboard (charts, recent sales table)
    beyond the current revenue/tickets-sold stat cards.
-5. **Stage 10** — Discover page ranking by city/interest match (filtering
+4. **Stage 10** — Discover page ranking by city/interest match (filtering
    already correct: published + upcoming only).
-6. **Stage 11** — event-interest tagging on the create-event page.
+5. **Stage 11** — event-interest tagging on the create-event page.
 
 ## Progress Log
 
@@ -155,4 +158,58 @@ what got fixed. Keep entries short; this is a changelog, not a diary.
   helper, `profiles.role` default `'customer'`) and `HARDENING.md` report.
   Fixed Next 16 prerender failure on `/signup` (missing Suspense around
   `useSearchParams`). Lint, tsc, and `next build` all pass.
+
+- **Session (2026-08-14, Stage 8.3):** Shipped re-review logic — editing a
+  `published`/`pending_review` event resets it to `pending_review`
+  (`app/events/[id]/edit/page.tsx`).
+
+- **Session (2026-08-14, admin roles):** Confirmed status values in use from
+  code (draft/pending_review/published/rejected/archived; approve→published,
+  reject→rejected). Built admin user management: `listUsers` + `setUserRole`
+  in `lib/services/admin.ts`, new `app/admin/users/page.tsx` (admin-guarded,
+  promotes/demotes customer/organizer/admin, self-demotion blocked), linked
+  from `/admin`. Requires the live `profiles` UPDATE policy to allow
+  `is_admin()` (per the hardening migration). Lint, tsc, `next build` pass.
+
+- **Session (2026-08-14, API layer + security boundary):** Closed the
+  "service layer is the trusted backend" finding. All privileged/status
+  mutations now run through server routes (service-role client, RLS
+  bypassed): `/api/admin/events/approve`, `/api/admin/events/reject`,
+  `/api/admin/users`, `/api/admin/users/role`, `/api/payments/verify`,
+  `/api/events/submit`, and two-phase `/api/checkout` + `/api/checkout/confirm`
+  (server validates event published + tier purchasable + quantity limits +
+  payment-method ownership + proof storage path; server creates order/payment/
+  proof rows). New `lib/api.ts` (server helpers: `runApi`, `requireUser`,
+  `requireAdmin`, `adminClient`) and `lib/apiClient.ts` (`apiFetch`/`apiPost`
+  with bearer token). Services `admin.ts`/`payments.ts`/`submitEventForReview`
+  rewired to call the routes — page code unchanged. Client can no longer
+  INSERT orders/payments/payment_proofs/payment_verifications, and buyers are
+  out of orders/payments UPDATE. RLS lockdown migration
+  `supabase/migrations/20260814_lockdown_privilege_policies.sql`
+  (`protect_profile_role` + `protect_event_publish` triggers, profiles INSERT
+  self-only-as-customer, orders/payments UPDATE organizer-or-admin, server-only
+  INSERTs) — NOT applied, run in the SQL editor section by section. Known
+  limitation: `quantity_sold` is still never incremented anywhere (availability
+  is read-side only; oversell race remains). Lint, tsc, `next build` pass.
+
+- **Session (2026-08-14, API layer + validation hardening):** Checkout,
+  payment verification, event submit, and admin endpoints moved to server-side
+  API routes (`app/api/checkout`, `app/api/checkout/confirm`,
+  `app/api/payments/verify`, `app/api/events/submit`, `app/api/admin/*`) with
+  `lib/api.ts` (`requireUser`/`requireAdmin`/`runApi`) and `lib/apiClient.ts`
+  (bearer-token `apiFetch`/`apiPost`). Fixed `requireUser` to return a
+  token-scoped `db` client (routes were destructuring `db` that didn't exist —
+  broke the whole API layer and `tsc`). Closed the medium-severity validation
+  gaps from the audit: quantity must be an integer >= 1 and <= max_per_order/
+  remaining (route), tier + payment method must belong to the selected event
+  (route queries `purchasable_ticket_tiers` and `event_payment_methods` scoped
+  by `event_id`), reference number trimmed + capped at 120 chars (new
+  `MAX_REFERENCE_LENGTH` in `lib/validation.ts`, enforced in confirm route),
+  proof image restricted to JPG/PNG/WebP/HEIC under 5 MB — the client wrapper
+  now generates a UUID-based storage path (never the client filename) and the
+  confirm route validates the stored object's `metadata.mimetype`/`size`.
+  Added `supabase/migrations/20260814_validation_constraints.sql` (DB
+  enforcement: `orders.quantity > 0`, `payment_proofs.reference_number` <= 120,
+  tier-matches-event and payment-method-matches-event triggers) — run in the
+  Supabase SQL editor section by section. Lint, tsc, `next build` all pass.
 

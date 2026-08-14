@@ -1,5 +1,12 @@
 import { supabase } from '@/lib/supabase'
-import { expectRow, fail, type DbResult } from '@/lib/db'
+import { fail, type DbResult } from '@/lib/db'
+import { apiPost } from '@/lib/apiClient'
+import {
+  imageExtensionForMime,
+  MAX_PROOF_IMAGE_BYTES,
+  MAX_REFERENCE_LENGTH,
+  sanitizeText,
+} from '@/lib/validation'
 
 export type CheckoutInput = {
   userId: string
@@ -8,117 +15,61 @@ export type CheckoutInput = {
   quantity: number
   file: File
   referenceNumber: string
+  paymentMethodId: string
 }
 
 export async function checkoutOrder(
   input: CheckoutInput
 ): Promise<DbResult<{ orderId: string }>> {
-  let orderId: string | null = null
-  let storagePath: string | null = null
-  let paymentId: string | null = null
-  let proofId: string | null = null
-
-  const cleanup = async () => {
-    if (proofId) await supabase.from('payment_proofs').delete().eq('id', proofId)
-    if (paymentId) await supabase.from('payments').delete().eq('id', paymentId)
-    if (orderId) await supabase.from('orders').delete().eq('id', orderId)
-    if (storagePath) await supabase.storage.from('payment-proofs').remove([storagePath])
+  if (!Number.isInteger(input.quantity) || input.quantity < 1) {
+    return fail('Quantity must be a whole number of at least 1.')
   }
 
-  const tierLookup = await supabase
-    .from('ticket_tiers')
-    .select('price')
-    .eq('id', input.tierId)
-    .maybeSingle()
-
-  if (tierLookup.error || !tierLookup.data) {
-    return fail('Creating your order: could not find the selected ticket type.')
+  const proofExt = imageExtensionForMime(input.file.type)
+  if (!proofExt) {
+    return fail('Please upload a JPG, PNG, WebP, or HEIC image as proof of payment.')
+  }
+  if (input.file.size > MAX_PROOF_IMAGE_BYTES) {
+    return fail(
+      `The proof image must be ${Math.floor(MAX_PROOF_IMAGE_BYTES / (1024 * 1024))} MB or smaller.`
+    )
   }
 
-  const totalPrice = tierLookup.data.price * input.quantity
+  const referenceNumber = sanitizeText(input.referenceNumber)
+  if (referenceNumber.length > MAX_REFERENCE_LENGTH) {
+    return fail(`The reference number must be ${MAX_REFERENCE_LENGTH} characters or fewer.`)
+  }
 
-  const order = await expectRow(
-    await supabase
-      .from('orders')
-      .insert({
-        user_id: input.userId,
-        event_id: input.eventId,
-        ticket_tier_id: input.tierId,
-        quantity: input.quantity,
-        total_price: totalPrice,
-        status: 'pending_payment',
-      })
-      .select('id')
-      .single(),
-    'Creating your order'
-  )
-  if (!order.ok) return order
-  orderId = order.data.id
+  const start = await apiPost<{ orderId: string }>('/api/checkout', {
+    eventId: input.eventId,
+    tierId: input.tierId,
+    quantity: input.quantity,
+    paymentMethodId: input.paymentMethodId,
+  })
+  if (!start.ok) return start
+  const orderId = start.data.orderId
 
-  storagePath = `${input.userId}/${orderId}-${input.file.name}`
+  const storagePath = `${input.userId}/${orderId}-${crypto.randomUUID()}.${proofExt}`
   const { error: uploadError } = await supabase.storage
     .from('payment-proofs')
     .upload(storagePath, input.file, { contentType: input.file.type })
   if (uploadError) {
-    await cleanup()
+    await supabase.from('orders').delete().eq('id', orderId)
     return fail(`Uploading payment proof: ${uploadError.message}`)
   }
 
-  const payment = await expectRow(
-    await supabase
-        .from('payments')
-        .insert({ order_id: orderId, amount: totalPrice })
-        .select('id')
-        .single(),
-    'Recording your payment'
-  )
-  if (!payment.ok) {
-    await cleanup()
-    return payment
-  }
-  paymentId = payment.data.id
-
-  const proof = await expectRow(
-    await supabase
-      .from('payment_proofs')
-      .insert({
-        payment_id: paymentId,
-        image_url: storagePath,
-        reference_number: input.referenceNumber.trim() || null,
-      })
-      .select('id')
-      .single(),
-    'Saving your payment proof'
-  )
-  if (!proof.ok) {
-    await cleanup()
-    return proof
-  }
-  proofId = proof.data.id
-
-  const flip = await expectRow(
-    await supabase
-      .from('orders')
-      .update({ status: 'pending_verification' })
-      .eq('id', orderId)
-      .select('id, status')
-      .single(),
-    'Confirming your order'
-  )
-  if (!flip.ok) {
-    await cleanup()
-    return flip
-  }
-  if (flip.data.status !== 'pending_verification') {
-    await cleanup()
-    return fail('Confirming your order: the status change was blocked.')
-  }
-  if (!orderId) {
-    await cleanup()
-    return fail('Creating your order: the order could not be found after checkout.')
+  const confirm = await apiPost<{ orderId: string }>('/api/checkout/confirm', {
+    orderId,
+    storagePath,
+    referenceNumber,
+    paymentMethodId: input.paymentMethodId,
+  })
+  if (!confirm.ok) {
+    await supabase.storage.from('payment-proofs').remove([storagePath])
+    return confirm
   }
 
-  return { ok: true, data: { orderId } }
+  return confirm
 }
 
 export async function approvePayment(input: {
@@ -126,88 +77,11 @@ export async function approvePayment(input: {
   paymentId: string
   orderId: string
 }): Promise<DbResult<{ orderId: string }>> {
-  const { data: existingPayment } = await supabase
-    .from('payments')
-    .select('status, verified_at, verified_by')
-    .eq('id', input.paymentId)
-    .maybeSingle()
-  const previous = {
-    status: existingPayment?.status ?? null,
-    verified_at: existingPayment?.verified_at ?? null,
-    verified_by: existingPayment?.verified_by ?? null,
-  }
-
-  const payment = await expectRow(
-    await supabase
-      .from('payments')
-      .update({
-        status: 'approved',
-        verified_at: new Date().toISOString(),
-        verified_by: input.organizerId,
-      })
-      .eq('id', input.paymentId)
-      .select('id, status')
-      .single(),
-    'Approving the payment'
-  )
-  if (!payment.ok) return payment
-  if (payment.data.status !== 'approved') {
-    return fail('Approving the payment: the change was blocked.')
-  }
-
-  const order = await expectRow(
-    await supabase
-      .from('orders')
-      .update({ status: 'confirmed' })
-      .eq('id', input.orderId)
-      .select('id, status')
-      .single(),
-    'Confirming the order'
-  )
-  if (!order.ok) {
-    await supabase
-      .from('payments')
-      .update({
-        status: previous.status,
-        verified_at: previous.verified_at,
-        verified_by: previous.verified_by,
-      })
-      .eq('id', input.paymentId)
-    return order
-  }
-  if (order.data.status !== 'confirmed') {
-    await supabase
-      .from('payments')
-      .update({
-        status: previous.status,
-        verified_at: previous.verified_at,
-        verified_by: previous.verified_by,
-      })
-      .eq('id', input.paymentId)
-    return fail('Confirming the order: the status change was blocked.')
-  }
-
-  const { error: verificationError } = await supabase
-    .from('payment_verifications')
-    .insert({
-      payment_id: input.paymentId,
-      verified_by: input.organizerId,
-      decision: 'approved',
-    })
-  if (verificationError) {
-    await supabase.from('orders').update({ status: 'pending_verification' }).eq('id', input.orderId)
-    await supabase
-      .from('payments')
-      .update({
-        status: previous.status,
-        verified_at: previous.verified_at,
-        verified_by: previous.verified_by,
-      })
-      .eq('id', input.paymentId)
-    return fail(`Recording the verification: ${verificationError.message}`)
-  }
-
-  return { ok: true, data: { orderId: input.orderId } }
+  return apiPost<{ orderId: string }>('/api/payments/verify', {
+    paymentId: input.paymentId,
+    orderId: input.orderId,
+    decision: 'approved',
+  })
 }
 
 export async function rejectPayment(input: {
@@ -216,91 +90,10 @@ export async function rejectPayment(input: {
   orderId: string
   reason: string
 }): Promise<DbResult<{ orderId: string }>> {
-  const { data: existingPayment } = await supabase
-    .from('payments')
-    .select('status, verified_at, verified_by')
-    .eq('id', input.paymentId)
-    .maybeSingle()
-  const previous = {
-    status: existingPayment?.status ?? null,
-    verified_at: existingPayment?.verified_at ?? null,
-    verified_by: existingPayment?.verified_by ?? null,
-  }
-
-  const payment = await expectRow(
-    await supabase
-      .from('payments')
-      .update({
-        status: 'rejected',
-        verified_at: new Date().toISOString(),
-        verified_by: input.organizerId,
-      })
-      .eq('id', input.paymentId)
-      .select('id, status')
-      .single(),
-    'Rejecting the payment'
-  )
-  if (!payment.ok) return payment
-  if (payment.data.status !== 'rejected') {
-    return fail('Rejecting the payment: the change was blocked.')
-  }
-
-  const order = await expectRow(
-    await supabase
-      .from('orders')
-      .update({ status: 'pending_payment' })
-      .eq('id', input.orderId)
-      .select('id, status')
-      .single(),
-    'Reopening the order'
-  )
-  if (!order.ok) {
-    await supabase
-      .from('payments')
-      .update({
-        status: previous.status,
-        verified_at: previous.verified_at,
-        verified_by: previous.verified_by,
-      })
-      .eq('id', input.paymentId)
-    return order
-  }
-  if (order.data.status !== 'pending_payment') {
-    await supabase
-      .from('payments')
-      .update({
-        status: previous.status,
-        verified_at: previous.verified_at,
-        verified_by: previous.verified_by,
-      })
-      .eq('id', input.paymentId)
-    return fail('Reopening the order: the status change was blocked.')
-  }
-
-  const insertData: Record<string, unknown> = {
-    payment_id: input.paymentId,
-    verified_by: input.organizerId,
+  return apiPost<{ orderId: string }>('/api/payments/verify', {
+    paymentId: input.paymentId,
+    orderId: input.orderId,
     decision: 'rejected',
-  }
-  if (input.reason.trim()) {
-    insertData.notes = input.reason.trim()
-  }
-
-  const { error: verificationError } = await supabase
-    .from('payment_verifications')
-    .insert(insertData)
-  if (verificationError) {
-    await supabase.from('orders').update({ status: 'pending_verification' }).eq('id', input.orderId)
-    await supabase
-      .from('payments')
-      .update({
-        status: previous.status,
-        verified_at: previous.verified_at,
-        verified_by: previous.verified_by,
-      })
-      .eq('id', input.paymentId)
-    return fail(`Recording the verification: ${verificationError.message}`)
-  }
-
-  return { ok: true, data: { orderId: input.orderId } }
+    reason: input.reason,
+  })
 }

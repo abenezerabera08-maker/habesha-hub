@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { expectRow, fail, type DbResult } from '@/lib/db'
+import { apiPost } from '@/lib/apiClient'
 
 export type TierRow = {
   name: string
@@ -160,20 +161,7 @@ export async function updateEventDetails(
 }
 
 export async function submitEventForReview(eventId: string): Promise<DbResult<{ id: string }>> {
-  const result = await expectRow(
-    await supabase
-      .from('events')
-      .update({ status: 'pending_review' })
-      .eq('id', eventId)
-      .select('id, status')
-      .single(),
-    'Submitting for review'
-  )
-  if (!result.ok) return result
-  if (result.data.status !== 'pending_review') {
-    return fail('Submitting for review: the status change was blocked.')
-  }
-  return { ok: true, data: { id: eventId } }
+  return apiPost<{ id: string }>('/api/events/submit', { eventId })
 }
 
 export async function replaceTiers(

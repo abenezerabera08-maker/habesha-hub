@@ -107,10 +107,28 @@ create policy "profiles_update_self_or_admin" on public.profiles
   using (id = auth.uid() or is_admin(auth.uid()))
   with check (id = auth.uid() or is_admin(auth.uid()));
 
+-- admin moderation reads: the admin queue needs to read rows across the whole
+-- platform, not just the current user's own row.
+create policy "profiles_select_admin" on public.profiles
+  for select
+  using (is_admin(auth.uid()));
+
+create policy "orders_select_admin" on public.orders
+  for select
+  using (is_admin(auth.uid()));
+
+create policy "payments_select_admin" on public.payments
+  for select
+  using (is_admin(auth.uid()));
+
+create policy "payment_proofs_select_admin" on public.payment_proofs
+  for select
+  using (is_admin(auth.uid()));
+
 -- CHECK 4: profile UPDATE still allowed for self (location etc.), role guarded
 -- by the Section 1 trigger.
 select policyname, cmd, roles from pg_policies
-where tablename = 'profiles' and cmd = 'UPDATE';
+where tablename = 'profiles' and cmd in ('UPDATE', 'SELECT');
 
 -- =============================================================================
 -- SECTION 5: events INSERT — owner only, non-privileged statuses

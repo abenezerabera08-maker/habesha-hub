@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { requireRole } from "@/lib/auth";
 import { approvePayment, rejectPayment } from "@/lib/services/payments";
@@ -9,6 +10,7 @@ import { approvePayment, rejectPayment } from "@/lib/services/payments";
 type PendingPayment = {
   orderId: string;
   eventTitle: string;
+  organizerName: string;
   attendeeName: string;
   tierName: string;
   tierPrice: number;
@@ -17,12 +19,13 @@ type PendingPayment = {
   submittedAt: string | null;
   referenceNumber: string | null;
   proofSignedUrl: string | null;
+  paymentMethodType: string | null;
   paymentId: string;
 };
 
-export default function PaymentReviewPage() {
+export default function AdminPaymentsPage() {
   const [loading, setLoading] = useState(true);
-  const [isOrganizer, setIsOrganizer] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState("");
   const [payments, setPayments] = useState<PendingPayment[]>([]);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
@@ -32,43 +35,25 @@ export default function PaymentReviewPage() {
 
   useEffect(() => {
     const checkAccess = async () => {
-      const session = await requireRole("organizer", (href) =>
+      const session = await requireRole("admin", (href) =>
         router.replace(href),
       );
       if (!session) return;
 
-      setIsOrganizer(true);
-      await loadPendingPayments(session.userId);
+      setIsAdmin(true);
+      await loadPendingPayments();
       setLoading(false);
     };
     checkAccess();
   }, [router]);
 
-  async function loadPendingPayments(userId: string) {
+  async function loadPendingPayments() {
     setError("");
-    const { data: events, error: eventsError } = await supabase
-      .from("events")
-      .select("id, title")
-      .eq("organizer_id", userId);
-
-    if (eventsError) {
-      setError(`Failed to load events: ${eventsError.message}`);
-      return;
-    }
-
-    const eventIds = (events ?? []).map((e) => e.id);
-    if (eventIds.length === 0) {
-      setPayments([]);
-      return;
-    }
-
-    const eventMap = new Map((events ?? []).map((e) => [e.id, e.title]));
 
     const { data: orders, error: ordersError } = await supabase
       .from("orders")
       .select("id, event_id, ticket_tier_id, user_id, quantity, total_price")
-      .eq("status", "pending_verification")
-      .in("event_id", eventIds);
+      .eq("status", "pending_verification");
 
     if (ordersError) {
       setError(`Failed to load orders: ${ordersError.message}`);
@@ -80,31 +65,62 @@ export default function PaymentReviewPage() {
       return;
     }
 
+    const eventIds = [...new Set(orders.map((o) => o.event_id))];
     const tierIds = [...new Set(orders.map((o) => o.ticket_tier_id))];
     const profileIds = [...new Set(orders.map((o) => o.user_id))];
 
     const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
 
-    const [tiersRes, profilesRes, paymentsRes] = await Promise.all([
+    const [eventsRes, tiersRes, profilesRes, paymentsRes] = await Promise.all([
+      supabase.from("events").select("id, title, organizer_id").in("id", eventIds),
       supabase.from("ticket_tiers").select("id, name, price").in("id", tierIds),
       supabase.from("profiles").select("id, full_name").in("id", profileIds),
       supabase
         .from("payments")
-        .select("id, order_id, amount, status, submitted_at")
+        .select("id, order_id, amount, status, submitted_at, payment_method_id")
         .in("order_id", orders.map((o) => o.id))
         .gte("created_at", threeDaysAgo),
     ]);
 
-    if (tiersRes.error || profilesRes.error || paymentsRes.error) {
+    if (eventsRes.error || tiersRes.error || profilesRes.error || paymentsRes.error) {
       setError("Failed to load payment details.");
       return;
     }
 
+    const eventMap = new Map((eventsRes.data ?? []).map((e) => [e.id, e]));
     const tierMap = new Map((tiersRes.data ?? []).map((t) => [t.id, t]));
     const profileMap = new Map((profilesRes.data ?? []).map((p) => [p.id, p]));
     const paymentsByOrder = new Map(
       (paymentsRes.data ?? []).map((p) => [p.order_id, p]),
     );
+
+    const organizerIds = [
+      ...new Set((eventsRes.data ?? []).map((e) => e.organizer_id)),
+    ];
+    let organizerMap = new Map<string, string | null>();
+    if (organizerIds.length > 0) {
+      const { data: orgProfiles } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", organizerIds);
+      organizerMap = new Map((orgProfiles ?? []).map((p) => [p.id, p.full_name]));
+    }
+
+    const methodIds = [
+      ...new Set(
+        (paymentsRes.data ?? [])
+          .map((p) => p.payment_method_id)
+          .filter((id): id is string => id != null),
+      ),
+    ];
+    let methodMap = new Map<string, string>();
+    if (methodIds.length > 0) {
+      const { data: methods } = await supabase
+        .from("event_payment_methods")
+        .select("id, type")
+        .in("id", methodIds);
+      methodMap = new Map((methods ?? []).map((m) => [m.id, m.type]));
+    }
 
     const paymentIds = (paymentsRes.data ?? []).map((p) => p.id);
     let proofsByPayment = new Map<
@@ -131,6 +147,7 @@ export default function PaymentReviewPage() {
     for (const order of orders) {
       const payment = paymentsByOrder.get(order.id);
       const proof = payment ? proofsByPayment.get(payment.id) : null;
+      const event = eventMap.get(order.event_id);
 
       let signedUrl: string | null = null;
       if (proof?.image_url) {
@@ -142,7 +159,8 @@ export default function PaymentReviewPage() {
 
       result.push({
         orderId: order.id,
-        eventTitle: eventMap.get(order.event_id) ?? "Unknown Event",
+        eventTitle: event?.title ?? "Unknown Event",
+        organizerName: organizerMap.get(event?.organizer_id ?? "") ?? "Unknown",
         attendeeName: profileMap.get(order.user_id)?.full_name ?? "Unknown",
         tierName: tierMap.get(order.ticket_tier_id)?.name ?? "Unknown",
         tierPrice: tierMap.get(order.ticket_tier_id)?.price ?? 0,
@@ -151,6 +169,9 @@ export default function PaymentReviewPage() {
         submittedAt: payment?.submitted_at ?? null,
         referenceNumber: proof?.reference_number ?? null,
         proofSignedUrl: signedUrl,
+        paymentMethodType: payment?.payment_method_id
+          ? methodMap.get(payment.payment_method_id) ?? null
+          : null,
         paymentId: payment?.id ?? "",
       });
     }
@@ -163,7 +184,7 @@ export default function PaymentReviewPage() {
     setProcessingId(item.orderId);
     setError("");
 
-    const session = await requireRole("organizer", (href) =>
+    const session = await requireRole("admin", (href) =>
       router.replace(href),
     );
     if (!session) return;
@@ -180,7 +201,7 @@ export default function PaymentReviewPage() {
       return;
     }
 
-    await loadPendingPayments(session.userId);
+    await loadPendingPayments();
     setProcessingId(null);
   };
 
@@ -189,7 +210,7 @@ export default function PaymentReviewPage() {
     setProcessingId(item.orderId);
     setError("");
 
-    const session = await requireRole("organizer", (href) =>
+    const session = await requireRole("admin", (href) =>
       router.replace(href),
     );
     if (!session) return;
@@ -207,18 +228,30 @@ export default function PaymentReviewPage() {
       return;
     }
 
-    await loadPendingPayments(session.userId);
+    await loadPendingPayments();
     setProcessingId(null);
     setRejectingId(null);
     setRejectReason("");
   };
 
   if (loading) return <p>Loading...</p>;
-  if (!isOrganizer) return <p>{error}</p>;
+  if (!isAdmin) return <p>{error}</p>;
 
   return (
     <div style={{ maxWidth: 640, margin: "40px auto", padding: "0 16px" }}>
-      <h1>Payment Verification</h1>
+      <h1>Platform Payment Review</h1>
+
+      <Link
+        href="/admin"
+        style={{
+          display: "inline-block",
+          marginBottom: 16,
+          fontSize: 14,
+          color: "#0066cc",
+        }}
+      >
+        &larr; Back to event review
+      </Link>
 
       {error && <p style={{ color: "#c00", marginTop: 12 }}>{error}</p>}
 
@@ -244,12 +277,20 @@ export default function PaymentReviewPage() {
                 {item.eventTitle}
               </p>
               <p style={{ margin: "4px 0", color: "#555" }}>
+                Organizer: {item.organizerName}
+              </p>
+              <p style={{ margin: "4px 0", color: "#555" }}>
                 Attendee: {item.attendeeName}
               </p>
               <p style={{ margin: "4px 0" }}>
                 {item.tierName} &times; {item.quantity} ={" "}
                 <strong>{item.totalPrice} ETB</strong>
               </p>
+              {item.paymentMethodType && (
+                <p style={{ margin: "4px 0", fontSize: 13, color: "#555" }}>
+                  Payment method: {item.paymentMethodType}
+                </p>
+              )}
               {item.submittedAt && (
                 <p style={{ margin: "4px 0", fontSize: 13, color: "#555" }}>
                   Submitted:{" "}

@@ -114,9 +114,14 @@ export default function AdminReviewPage() {
     <div style={{ maxWidth: 640, margin: '40px auto', padding: '0 16px' }}>
       <h1>Event Review</h1>
 
-      <Link href="/admin/users" style={{ display: 'inline-block', marginBottom: 16, fontSize: 14, color: '#0066cc' }}>
-        Manage users and admin roles
-      </Link>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+        <Link href="/admin/users" style={{ fontSize: 14, color: '#0066cc' }}>
+          Manage users and admin roles
+        </Link>
+        <Link href="/admin/payments" style={{ fontSize: 14, color: '#0066cc' }}>
+          Review pending payments
+        </Link>
+      </div>
 
       {error && <p style={{ color: '#c00', marginTop: 12 }}>{error}</p>}
 

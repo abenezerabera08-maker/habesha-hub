@@ -80,11 +80,6 @@ export async function POST(request: NextRequest) {
     const targetStatus = decision === 'approved' ? 'approved' : 'rejected'
     const orderTarget = decision === 'approved' ? 'confirmed' : 'pending_payment'
 
-    let tkCode: string | null = null
-    if (decision === 'approved') {
-      tkCode = await generateTkCode(db)
-    }
-
     const rollbackPayment = async () => {
       await db
         .from('payments')
@@ -96,6 +91,10 @@ export async function POST(request: NextRequest) {
         .eq('id', paymentId)
     }
 
+    // Atomic conditional update: the status filter is part of the WHERE
+    // clause itself, not a separate prior read. If two requests race, only
+    // one can match status = 'pending' at write time — the other gets a
+    // clean 409 instead of silently overwriting the first request's result.
     const { data: paymentRes, error: paymentError } = await db
       .from('payments')
       .update({
@@ -104,15 +103,27 @@ export async function POST(request: NextRequest) {
         verified_by: user.id,
       })
       .eq('id', paymentId)
+      .eq('status', 'pending')
       .select('id, status')
       .single()
 
     if (paymentError) {
+      if (paymentError.code === 'PGRST116') {
+        throw new ApiFailure(
+          'This payment was just processed by another request. Refresh to see the latest status.',
+          409
+        )
+      }
       throw new ApiFailure(`Updating the payment: ${paymentError.message}`, 500)
     }
     if (paymentRes?.status !== targetStatus) {
       await rollbackPayment()
       throw new ApiFailure(`Updating the payment: the change was blocked.`, 500)
+    }
+
+    let tkCode: string | null = null
+    if (decision === 'approved') {
+      tkCode = await generateTkCode(db)
     }
 
     const { data: orderRes, error: orderError } = await db

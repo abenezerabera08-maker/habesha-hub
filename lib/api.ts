@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { NextRequest } from 'next/server'
 
-export type ApiFailureStatus = 400 | 401 | 403 | 404 | 500
+export type ApiFailureStatus = 400 | 401 | 403 | 404 | 409 | 500
 
 export class ApiFailure extends Error {
   status: ApiFailureStatus

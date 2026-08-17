@@ -34,7 +34,7 @@ security definer
 set search_path = public
 as $$
 begin
-  if new.role is distinct from old.role and not public.is_admin() then
+  if new.role is distinct from old.role and not public.is_admin(auth.uid()) then
     raise exception 'Changing your own role is not allowed';
   end if;
   return new;
@@ -62,7 +62,7 @@ security definer
 set search_path = public
 as $$
 begin
-  if new.status = 'published' and not public.is_admin() then
+  if new.status = 'published' and not public.is_admin(auth.uid()) then
     raise exception 'Only an admin can publish an event';
   end if;
   return new;
@@ -99,12 +99,13 @@ where tablename = 'profiles' and cmd = 'INSERT';
 -- =============================================================================
 
 drop policy if exists "profiles_update_own" on public.profiles;
+drop policy if exists "Users can update their own profile" on public.profiles;
 drop policy if exists "profiles_update_self_or_admin" on public.profiles;
 
 create policy "profiles_update_self_or_admin" on public.profiles
   for update
-  using (id = auth.uid() or is_admin())
-  with check (id = auth.uid() or is_admin());
+  using (id = auth.uid() or is_admin(auth.uid()))
+  with check (id = auth.uid() or is_admin(auth.uid()));
 
 -- CHECK 4: profile UPDATE still allowed for self (location etc.), role guarded
 -- by the Section 1 trigger.
@@ -117,6 +118,7 @@ where tablename = 'profiles' and cmd = 'UPDATE';
 
 drop policy if exists "events_insert_organizer" on public.events;
 drop policy if exists "events_insert_owner" on public.events;
+drop policy if exists "Organizers can create events" on public.events;
 
 create policy "events_insert_owner" on public.events
   for insert
@@ -132,11 +134,12 @@ where tablename = 'events' and cmd = 'INSERT';
 
 drop policy if exists "events_update_owner" on public.events;
 drop policy if exists "events_update_owner_or_admin" on public.events;
+drop policy if exists "Organizers can update their own events" on public.events;
 
 create policy "events_update_owner_or_admin" on public.events
   for update
-  using (organizer_id = auth.uid() or is_admin())
-  with check (organizer_id = auth.uid() or is_admin());
+  using (organizer_id = auth.uid() or is_admin(auth.uid()))
+  with check (organizer_id = auth.uid() or is_admin(auth.uid()));
 
 -- CHECK 6: non-admins cannot write status='published' (trigger + policy).
 select policyname, cmd, roles from pg_policies
@@ -148,6 +151,7 @@ where tablename = 'events' and cmd = 'UPDATE';
 
 drop policy if exists "orders_insert_owner" on public.orders;
 drop policy if exists "orders_insert_server_only" on public.orders;
+drop policy if exists "Users can insert their own orders" on public.orders;
 
 create policy "orders_insert_server_only" on public.orders
   for insert
@@ -163,6 +167,8 @@ where tablename = 'orders' and cmd = 'INSERT';
 
 drop policy if exists "orders_update_owner" on public.orders;
 drop policy if exists "orders_update_organizer_or_admin" on public.orders;
+drop policy if exists "Users can update their own orders" on public.orders;
+drop policy if exists "Organizers can update orders for their events" on public.orders;
 
 create policy "orders_update_organizer_or_admin" on public.orders
   for update
@@ -170,14 +176,14 @@ create policy "orders_update_organizer_or_admin" on public.orders
     exists (
       select 1 from public.events e
       where e.id = orders.event_id
-        and (e.organizer_id = auth.uid() or is_admin())
+        and (e.organizer_id = auth.uid() or is_admin(auth.uid()))
     )
   )
   with check (
     exists (
       select 1 from public.events e
       where e.id = orders.event_id
-        and (e.organizer_id = auth.uid() or is_admin())
+        and (e.organizer_id = auth.uid() or is_admin(auth.uid()))
     )
   );
 
@@ -206,6 +212,7 @@ where tablename = 'orders' and cmd = 'DELETE';
 
 drop policy if exists "payments_insert_owner" on public.payments;
 drop policy if exists "payments_insert_server_only" on public.payments;
+drop policy if exists "Attendees can insert payment for their own order" on public.payments;
 
 create policy "payments_insert_server_only" on public.payments
   for insert
@@ -221,6 +228,7 @@ where tablename = 'payments' and cmd = 'INSERT';
 
 drop policy if exists "payments_update_owner" on public.payments;
 drop policy if exists "payments_update_organizer_or_admin" on public.payments;
+drop policy if exists "Organizers can update payments for their events" on public.payments;
 
 create policy "payments_update_organizer_or_admin" on public.payments
   for update
@@ -229,7 +237,7 @@ create policy "payments_update_organizer_or_admin" on public.payments
       select 1 from public.orders o
       join public.events e on e.id = o.event_id
       where o.id = payments.order_id
-        and (e.organizer_id = auth.uid() or is_admin())
+        and (e.organizer_id = auth.uid() or is_admin(auth.uid()))
     )
   )
   with check (
@@ -237,7 +245,7 @@ create policy "payments_update_organizer_or_admin" on public.payments
       select 1 from public.orders o
       join public.events e on e.id = o.event_id
       where o.id = payments.order_id
-        and (e.organizer_id = auth.uid() or is_admin())
+        and (e.organizer_id = auth.uid() or is_admin(auth.uid()))
     )
   );
 
@@ -251,6 +259,7 @@ where tablename = 'payments' and cmd = 'UPDATE';
 
 drop policy if exists "payment_proofs_insert_owner" on public.payment_proofs;
 drop policy if exists "payment_proofs_insert_server_only" on public.payment_proofs;
+drop policy if exists "Attendees can insert proof for their own payment" on public.payment_proofs;
 
 create policy "payment_proofs_insert_server_only" on public.payment_proofs
   for insert
@@ -273,6 +282,7 @@ where tablename = 'payment_proofs' and cmd in ('INSERT', 'DELETE');
 
 drop policy if exists "payment_verifications_insert_organizer" on public.payment_verifications;
 drop policy if exists "payment_verifications_insert_server_only" on public.payment_verifications;
+drop policy if exists "Organizers can insert verification for their events" on public.payment_verifications;
 
 create policy "payment_verifications_insert_server_only" on public.payment_verifications
   for insert

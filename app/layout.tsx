@@ -17,7 +17,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body style={{ paddingBottom: 70 }}>
+      <body style={{ paddingBottom: 84 }}>
         {children}
         <BottomNav />
       </body>

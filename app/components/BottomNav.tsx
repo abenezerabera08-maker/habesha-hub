@@ -6,6 +6,12 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
+type NavItem = {
+  label: string
+  href: string
+  icon: typeof Home
+}
+
 export default function BottomNav() {
   const pathname = usePathname()
   const [role, setRole] = useState<string | null>(null)
@@ -27,7 +33,7 @@ export default function BottomNav() {
     fetchRole()
   }, [])
 
-  const navItems = [
+  const navItems: NavItem[] = [
     { label: 'Discover', href: '/', icon: Home },
     { label: 'Tickets', href: '/my-tickets', icon: Ticket },
     { label: 'Account', href: '/account', icon: User },
@@ -45,63 +51,63 @@ export default function BottomNav() {
   ]
 
   return (
-    <nav
+    <div
       style={{
         position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        width: '100%',
-        background: '#fff',
-        borderTop: '1px solid #eee',
+        bottom: 16,
+        left: '50%',
+        transform: 'translateX(-50%)',
         zIndex: 9999,
         display: 'flex',
-        justifyContent: 'space-around',
-        alignItems: 'center',
-        paddingBottom: 'env(safe-area-inset-bottom)',
-        paddingTop: 8,
+        justifyContent: 'center',
+        width: '100%',
+        maxWidth: 640,
+        padding: '0 16px',
+        pointerEvents: 'none',
       }}
     >
-      {navItems.map((item) => {
-        const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
-        const Icon = item.icon
+      <nav
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          borderRadius: 9999,
+          background: '#1C1917',
+          padding: '6px 8px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+          pointerEvents: 'auto',
+        }}
+      >
+        {navItems.map((item) => {
+          const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
+          const Icon = item.icon
 
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 4,
-              textDecoration: 'none',
-              color: active ? '#171717' : '#888',
-              fontWeight: active ? 600 : 400,
-              fontSize: 12,
-              position: 'relative',
-              padding: '0 12px',
-            }}
-          >
-            {active && (
-              <span
-                style={{
-                  position: 'absolute',
-                  top: -9,
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  width: 24,
-                  height: 3,
-                  borderRadius: 2,
-                  background: '#171717',
-                }}
-              />
-            )}
-            <Icon size={22} />
-            {item.label}
-          </Link>
-        )
-      })}
-    </nav>
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                borderRadius: 9999,
+                padding: active ? '8px 14px 8px 10px' : '8px 10px',
+                background: active ? '#F59E0B' : 'transparent',
+                color: active ? '#fff' : '#A8A29E',
+                textDecoration: 'none',
+                transition: 'background-color 0.15s, color 0.15s',
+              }}
+            >
+              <Icon size={20} strokeWidth={active ? 2.5 : 2} />
+              {active && (
+                <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  {item.label}
+                </span>
+              )}
+            </Link>
+          )
+        })}
+      </nav>
+    </div>
   )
 }

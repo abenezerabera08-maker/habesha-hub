@@ -118,6 +118,7 @@ export async function updateEventDetails(
     eventDate: string
     interestIds?: string[]
     status?: string
+    imageUrl?: string | null
   }
 ): Promise<DbResult<{ id: string }>> {
   const updatePayload: Record<string, unknown> = {
@@ -129,6 +130,9 @@ export async function updateEventDetails(
   }
   if (details.status) {
     updatePayload.status = details.status
+  }
+  if (details.imageUrl !== undefined) {
+    updatePayload.image_url = details.imageUrl
   }
 
   const result = await expectRow(

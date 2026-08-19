@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { Ticket } from 'lucide-react'
 
 type TicketTier = {
   id: string
@@ -75,62 +76,100 @@ export default function TicketList({
     }
   }, [eventId])
 
-  if (tiers.length === 0) return <p>No tickets available yet.</p>
+  if (tiers.length === 0) {
+    return (
+      <div
+        style={{
+          padding: '24px 16px',
+          textAlign: 'center',
+          borderRadius: 12,
+          border: '1px solid #F5F5F4',
+          background: '#FAFAF9',
+        }}
+      >
+        <Ticket size={24} color="#D6D3D1" style={{ marginBottom: 8 }} />
+        <p style={{ fontSize: 14, color: '#A8A29E', margin: 0 }}>No tickets available yet.</p>
+      </div>
+    )
+  }
 
   return (
-    <>
-      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-        {tiers.map((tier) => (
-          <li
-            key={tier.id}
-            style={{
-              border: '1px solid #ddd',
-              borderRadius: 8,
-              padding: 16,
-              marginBottom: 12,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {tiers.map((tier) => (
+        <div
+          key={tier.id}
+          style={{
+            border: '1px solid #F5F5F4',
+            borderRadius: 12,
+            padding: 14,
+            background: '#fff',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {tier.color && (
                 <span
                   style={{
                     display: 'inline-block',
-                    width: 12,
-                    height: 12,
+                    width: 10,
+                    height: 10,
                     borderRadius: '50%',
                     background: colorMap[tier.color] ?? '#999',
                   }}
                 />
               )}
-              <strong>{tier.name}</strong>
+              <span style={{ fontSize: 14, fontWeight: 600, color: '#1C1917' }}>
+                {tier.name}
+              </span>
             </div>
-            {tier.description && (
-              <p style={{ margin: '4px 0', color: '#555', fontSize: 14 }}>{tier.description}</p>
-            )}
-            <p style={{ margin: '4px 0' }}>
-              {tier.price} ETB — {tier.quantity_remaining} remaining
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#1C1917' }}>
+              {tier.price === 0 ? 'Free' : `ETB ${tier.price}`}
+            </span>
+          </div>
+
+          {tier.description && (
+            <p style={{ margin: '6px 0 0', fontSize: 13, color: '#78716C', lineHeight: 1.4 }}>
+              {tier.description}
             </p>
-            {tier.benefits && tier.benefits.length > 0 && (
-              <ul style={{ margin: '4px 0', paddingLeft: 20, fontSize: 14 }}>
-                {tier.benefits.map((b, i) => (
-                  <li key={i}>{b}</li>
-                ))}
-              </ul>
-            )}
-            {tier.max_group_size && (
-              <p style={{ margin: '4px 0', fontSize: 14, fontStyle: 'italic' }}>
-                Group ticket — admits up to {tier.max_group_size} people per ticket
-              </p>
-            )}
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+            <span style={{ fontSize: 12, color: '#A8A29E' }}>
+              {tier.quantity_remaining} remaining
+              {tier.max_group_size && ` · Up to ${tier.max_group_size} per ticket`}
+            </span>
             <button
+              type="button"
               onClick={() => handleSelectTier(tier.id)}
-              style={{ marginTop: 8, padding: '8px 20px', borderRadius: 8, border: 'none', background: '#171717', color: '#fff', fontSize: 14, cursor: 'pointer' }}
+              style={{
+                padding: '6px 16px',
+                borderRadius: 8,
+                border: 'none',
+                background: '#1C1917',
+                color: '#fff',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
             >
-              Select this ticket
+              Select
             </button>
-          </li>
-        ))}
-      </ul>
-    </>
+          </div>
+
+          {tier.benefits && tier.benefits.length > 0 && (
+            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #F5F5F4' }}>
+              {tier.benefits.map((b, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span style={{ fontSize: 12, color: '#57534E' }}>{b}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
   )
 }

@@ -161,6 +161,37 @@ what got fixed. Keep entries short; this is a changelog, not a diary.
   (`events`, `ticket_tiers`). Split create-event into "Save as Draft" /
   "Submit for Review" buttons. Consolidated edit-page saves into one button.
 
+- **Session (2026-08-19, Account page redesign):** Complete UI/UX redesign
+  of `/account` page. New profile card with avatar (initials + gold accent),
+  camera badge, Edit Profile button, location/joined date, and stats row
+  (Events Attended / Following / Followers) with responsive layout. Dark
+  interests banner with amber heart icon and gold CTA button. Large Host an
+  Event hero CTA (dark card, gold accent, calendar icon, arrow button →
+  `/create-event`). Quick Access 2-column grid (My Tickets, My Events,
+  Saved Events, Interests) with amber icon badges and chevron arrows.
+  Account Settings section with icon rows (Profile Info, Security,
+  Notifications, Privacy). Styled logout button (red icon, chevron). New
+  `LogoutButton.tsx` with proper styling replacing the old unstyled raw
+  button. Responsive CSS utilities in `globals.css` for profile card
+  desktop layout. Lint, tsc, `next build` all pass.
+
+- **Session (2026-08-19, My Tickets redesign):** Redesigned attendee ticket
+  experience. New `components/tickets/ticketDisplay.tsx` — shared tier
+  config (color/bg/icon per tier), status config (confirmed/checked_in/
+  pending/rejected with icons), `getDisplayStatus()` (checked_in overrides
+  confirmed), `isGroupTier()`, formatters. New
+  `components/tickets/TicketSummaryCard.tsx` — left accent bar, tier icon
+  badge, Lucide status icons, rejection reason, arrow for clickable cards.
+  Rewrote `app/my-tickets/page.tsx` (uses `getDisplayStatus` for proper
+  classification into tickets/pending/rejected, imports shared
+  `TicketSummaryCard`). Rewrote `app/my-tickets/[id]/page.tsx` — sticky
+  header with backdrop-blur, status badge with icon below VerticalTicket
+  visual, card-based info rows (Admits/Ticket Holder/Ticket Code with
+  icons), event card (Calendar icon + date/time, MapPin icon + venue/
+  location/city), "show at entrance" notice for non-checked-in confirmed
+  tickets, `venue_name` support. Loads `payment_verifications_notes` for
+  rejection reasons. Lint, tsc, `next build` all pass.
+
 - **Session (2026-08-14, hardening):** Production-hardening pass. New
   `lib/auth.ts` (`requireRole`), `lib/db.ts` (`expectRow` catches RLS
   silent-write failures), `lib/validation.ts` (realistic Unicode name/number

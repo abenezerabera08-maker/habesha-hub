@@ -12,7 +12,11 @@ import {
   type TierRow,
   type PaymentMethodRow,
 } from '@/lib/services/events'
-import { validateEvent } from '@/lib/validation'
+import { validateEvent, imageExtensionForMime } from '@/lib/validation'
+import TicketAppearanceSelector from '@/components/ticket/TicketAppearanceSelector'
+import TicketPreview from '@/components/ticket/TicketPreview'
+import type { VisualMode, ImageCropState } from '@/components/ticket/TicketTypeVisualMap'
+import { DEFAULT_IMAGE_CROP } from '@/components/ticket/TicketTypeVisualMap'
 
 type PaymentMethod = {
   method_type: string
@@ -41,6 +45,10 @@ type TicketTier = {
   max_group_size: string
   color: string
   benefits: string[]
+  visualMode: VisualMode
+  customColor: string
+  backgroundImageUrl: string
+  imageCrop: ImageCropState
 }
 
 const emptyTicketTier = (): TicketTier => ({
@@ -54,6 +62,10 @@ const emptyTicketTier = (): TicketTier => ({
   max_group_size: '',
   color: '',
   benefits: [],
+  visualMode: 'automatic',
+  customColor: '',
+  backgroundImageUrl: '',
+  imageCrop: DEFAULT_IMAGE_CROP,
 })
 
 function toUTCISOString(localDateTimeStr: string): string | null {
@@ -66,7 +78,7 @@ export default function EditEventPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [event, setEvent] = useState<{ id: string; title: string; status: string; rejection_reason: string | null } | null>(null)
+  const [event, setEvent] = useState<{ id: string; title: string; status: string; rejection_reason: string | null; image_url: string | null } | null>(null)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [location, setLocation] = useState('')
@@ -83,6 +95,8 @@ export default function EditEventPage() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
   const [tierIds, setTierIds] = useState<string[]>([])
   const [paymentMethodIds, setPaymentMethodIds] = useState<string[]>([])
+  const [coverImage, setCoverImage] = useState<File | null>(null)
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
 
   useEffect(() => {
     const load = async () => {
@@ -91,7 +105,7 @@ export default function EditEventPage() {
 
       const { data, error: fetchError } = await supabase
         .from('events')
-        .select('id, title, status, organizer_id, description, location, event_date, city_id, rejection_reason')
+        .select('id, title, status, organizer_id, description, location, event_date, city_id, rejection_reason, image_url')
         .eq('id', id)
         .single()
 
@@ -107,7 +121,8 @@ export default function EditEventPage() {
         return
       }
 
-      setEvent({ id: data.id, title: data.title, status: data.status, rejection_reason: data.rejection_reason })
+      setEvent({ id: data.id, title: data.title, status: data.status, rejection_reason: data.rejection_reason, image_url: data.image_url })
+      setImageUrl(data.image_url)
       setTitle(data.title)
       setDescription(data.description ?? '')
       setLocation(data.location ?? '')
@@ -151,6 +166,10 @@ export default function EditEventPage() {
           max_group_size: t.max_group_size != null ? String(t.max_group_size) : '',
           color: t.color ?? '',
           benefits: t.benefits ?? [],
+          visualMode: 'automatic' as VisualMode,
+          customColor: '',
+          backgroundImageUrl: '',
+          imageCrop: DEFAULT_IMAGE_CROP,
         })))
         setTierIds(tierRows.map((t) => t.id))
       }
@@ -215,6 +234,24 @@ export default function EditEventPage() {
     const session = await requireRole('organizer', (href) => router.replace(href))
     if (!session) return
 
+    let finalImageUrl = imageUrl
+    if (coverImage) {
+      const ext = imageExtensionForMime(coverImage.type)
+      const path = `${session.userId}/${id}-cover.${ext}`
+      const { error: uploadErr } = await supabase.storage
+        .from('event-images')
+        .upload(path, coverImage, { upsert: true })
+      if (uploadErr) {
+        setSaveError('Image upload failed: ' + uploadErr.message)
+        setSaving(false)
+        return
+      }
+      const { data: urlData } = supabase.storage
+        .from('event-images')
+        .getPublicUrl(path)
+      finalImageUrl = urlData.publicUrl
+    }
+
     const details = await updateEventDetails(id, {
       title,
       description,
@@ -223,6 +260,7 @@ export default function EditEventPage() {
       eventDate: new Date(eventDate).toISOString(),
       interestIds: [...selectedInterests],
       status: needsReReview ? 'pending_review' : undefined,
+      imageUrl: finalImageUrl,
     })
     if (!details.ok) {
       setSaveError(details.error)
@@ -361,6 +399,40 @@ export default function EditEventPage() {
 
       {event.status === 'draft' || event.status === 'rejected' ? (
         <>
+          <div style={{ marginTop: 24 }}>
+            <h3>Cover image (optional)</h3>
+            <p style={{ fontSize: 13, color: '#555', marginBottom: 8 }}>
+              Recommended: 1200×630px, JPG/PNG/WebP, max 5 MB.
+            </p>
+            {(coverImage ? URL.createObjectURL(coverImage) : imageUrl) && (
+              <img
+                src={coverImage ? URL.createObjectURL(coverImage) : imageUrl!}
+                alt="Cover preview"
+                style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8, marginBottom: 8 }}
+              />
+            )}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) {
+                  if (file.size > 5 * 1024 * 1024) {
+                    setSaveError('Cover image must be under 5 MB.')
+                    return
+                  }
+                  const ext = imageExtensionForMime(file.type)
+                  if (!ext) {
+                    setSaveError('Cover image must be JPG, PNG, WebP, or HEIC.')
+                    return
+                  }
+                  setCoverImage(file)
+                  setSaveError('')
+                }
+              }}
+            />
+          </div>
+
           <div style={{ marginTop: 24 }}>
             <h3>Ticket Info</h3>
             <p style={{ fontSize: 13, color: '#555', marginBottom: 12 }}>
@@ -555,29 +627,46 @@ export default function EditEventPage() {
                   )}
                 </div>
 
-                <label style={{ display: 'block', marginBottom: 12 }}>
-                  Color (optional)
-                  <select
-                    id={`tier-color-select-${index}`}
-                    value={tier.color}
-                    onChange={(e) => {
-                      const updated = [...tiers]
-                      updated[index].color = e.target.value
-                      setTiers(updated)
-                    }}
-                    style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }}
-                  >
-                    <option value="">None</option>
-                    <option value="gold">Gold</option>
-                    <option value="silver">Silver</option>
-                    <option value="bronze">Bronze</option>
-                    <option value="blue">Blue</option>
-                    <option value="green">Green</option>
-                    <option value="purple">Purple</option>
-                    <option value="red">Red</option>
-                    <option value="gray">Gray</option>
-                  </select>
-                </label>
+                <TicketAppearanceSelector
+                  tierName={tier.name}
+                  visualMode={tier.visualMode}
+                  customColor={tier.customColor}
+                  backgroundImageUrl={tier.backgroundImageUrl}
+                  imageCrop={tier.imageCrop}
+                  onModeChange={(mode) => {
+                    const updated = [...tiers]
+                    updated[index].visualMode = mode
+                    setTiers(updated)
+                  }}
+                  onCustomColorChange={(color) => {
+                    const updated = [...tiers]
+                    updated[index].customColor = color
+                    setTiers(updated)
+                  }}
+                  onBackgroundImageChange={(url) => {
+                    const updated = [...tiers]
+                    updated[index].backgroundImageUrl = url
+                    setTiers(updated)
+                  }}
+                  onImageCropChange={(crop) => {
+                    const updated = [...tiers]
+                    updated[index].imageCrop = crop
+                    setTiers(updated)
+                  }}
+                />
+
+                <TicketPreview
+                  tierName={tier.name}
+                  visualMode={tier.visualMode}
+                  customColor={tier.customColor}
+                  backgroundImageUrl={tier.backgroundImageUrl}
+                  imageCrop={tier.imageCrop}
+                  eventName={title}
+                  eventDate={eventDate}
+                  eventLocation={location}
+                  quantity={tier.quantity_available ? parseInt(tier.quantity_available, 10) || undefined : undefined}
+                  price={tier.price ? `ETB ${parseFloat(tier.price).toFixed(2)}` : undefined}
+                />
 
                 <div style={{ marginBottom: 12 }}>
                   <span style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>Benefits (optional)</span>

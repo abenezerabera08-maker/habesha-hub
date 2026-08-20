@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { useAuth } from '@/lib/AuthContext'
 import {
   updateEventDetails,
   submitEventForReview,
@@ -76,6 +77,7 @@ function toUTCISOString(localDateTimeStr: string): string | null {
 export default function EditEventPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  const { userId, role, loading: authLoading } = useAuth()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [event, setEvent] = useState<{ id: string; title: string; status: string; rejection_reason: string | null; image_url: string | null } | null>(null)
@@ -100,8 +102,8 @@ export default function EditEventPage() {
 
   useEffect(() => {
     const load = async () => {
-      const session = await requireRole('organizer', (href) => router.replace(href))
-      if (!session) return
+      requireRole('organizer', role, authLoading, (href) => router.replace(href))
+      if (authLoading || role !== 'organizer') return
 
       const { data, error: fetchError } = await supabase
         .from('events')
@@ -115,7 +117,7 @@ export default function EditEventPage() {
         return
       }
 
-      if (data.organizer_id !== session.userId) {
+      if (data.organizer_id !== userId) {
         setError("You don't have permission to manage this event.")
         setLoading(false)
         return
@@ -193,7 +195,7 @@ export default function EditEventPage() {
       setLoading(false)
     }
     load()
-  }, [id, router])
+  }, [id, router, userId, role, authLoading])
 
   const needsReReview = event?.status === 'published' || event?.status === 'pending_review'
 
@@ -231,13 +233,13 @@ export default function EditEventPage() {
       return
     }
 
-    const session = await requireRole('organizer', (href) => router.replace(href))
-    if (!session) return
+    requireRole('organizer', role, authLoading, (href) => router.replace(href))
+    if (role !== 'organizer') return
 
     let finalImageUrl = imageUrl
     if (coverImage) {
       const ext = imageExtensionForMime(coverImage.type)
-      const path = `${session.userId}/${id}-cover.${ext}`
+      const path = `${userId}/${id}-cover.${ext}`
       const { error: uploadErr } = await supabase.storage
         .from('event-images')
         .upload(path, coverImage, { upsert: true })
@@ -665,6 +667,7 @@ export default function EditEventPage() {
                   eventDate={eventDate}
                   eventLocation={location}
                   quantity={tier.quantity_available ? parseInt(tier.quantity_available, 10) || undefined : undefined}
+                  admissionCount={tier.name === 'Jema (Group Ticket)' ? (parseInt(tier.max_group_size, 10) || 1) : 1}
                   price={tier.price ? `ETB ${parseFloat(tier.price).toFixed(2)}` : undefined}
                 />
 

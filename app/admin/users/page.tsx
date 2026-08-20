@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { requireRole } from '@/lib/auth'
+import { useAuth } from '@/lib/AuthContext'
 import { listUsers, setUserRole, type UserRow } from '@/lib/services/admin'
 
 const ROLE_OPTIONS = ['customer', 'organizer', 'admin'] as const
@@ -16,13 +17,14 @@ export default function AdminUsersPage() {
   const [savingId, setSavingId] = useState<string | null>(null)
   const [selfId, setSelfId] = useState<string | null>(null)
   const router = useRouter()
+  const { userId, role, loading: authLoading } = useAuth()
 
   useEffect(() => {
     const load = async () => {
-      const session = await requireRole('admin', (href) => router.replace(href))
-      if (!session) return
+      requireRole('admin', role, authLoading, (href) => router.replace(href))
+      if (authLoading || role !== 'admin') return
 
-      setSelfId(session.userId)
+      setSelfId(userId)
       const result = await listUsers()
       if (!result.ok) {
         setError(result.error)
@@ -34,7 +36,7 @@ export default function AdminUsersPage() {
       setLoading(false)
     }
     load()
-  }, [router])
+  }, [router, userId, role, authLoading])
 
   const handleSave = async (user: UserRow) => {
     setError('')

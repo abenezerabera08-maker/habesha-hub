@@ -20,8 +20,10 @@ type VerticalTicketProps = {
   eventLocation?: string
   imageCrop?: ImageCropState
   quantity?: number
+  admissionCount?: number
   tkCode?: string
   price?: string
+  holderName?: string
 }
 
 function formatDay(iso: string): string {
@@ -57,14 +59,19 @@ export default function VerticalTicket({
   eventLocation,
   imageCrop,
   quantity,
+  admissionCount,
   tkCode,
   price,
+  holderName,
 }: VerticalTicketProps) {
   const TierIcon = visual.tierIcon
   const crop = imageCrop ?? DEFAULT_IMAGE_CROP
   const outerRef = useRef<HTMLDivElement>(null)
   const [scale, setScale] = useState(1)
   const [imgFailed, setImgFailed] = useState(false)
+
+  const admissions = admissionCount ?? quantity ?? 1
+  const admitLabel = admissions === 1 ? 'ADMIT ONE' : `ADMIT ${admissions} PEOPLE`
 
   useEffect(() => {
     const el = outerRef.current
@@ -268,11 +275,11 @@ export default function VerticalTicket({
           {/* ── INFO ROWS ── */}
           <div
             style={{
-              height: '17.5%',
-              padding: '14px 24px 0',
+              height: '15.5%',
+              padding: '12px 24px 0',
               display: 'flex',
               flexDirection: 'column',
-              gap: 10,
+              gap: 8,
             }}
           >
             {eventDate && (
@@ -324,9 +331,10 @@ export default function VerticalTicket({
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
+                  maxWidth: '100%',
                 }}
               >
-                {price || '—'}
+                {holderName || '—'}
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <div>
@@ -341,28 +349,30 @@ export default function VerticalTicket({
                   >
                     TICKET CODE
                   </div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>
+                  <div style={{
+                    fontSize: 14, fontWeight: 700, color: '#fff',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    maxWidth: 180,
+                  }}>
                     {tkCode || '—'}
                   </div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 600,
-                      color: visual.accentColor,
-                      letterSpacing: '0.12em',
-                      marginBottom: 3,
-                    }}
-                  >
-                    ADMITS
+                  <div style={{ textAlign: 'right' }}>
+                    <div
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 600,
+                        color: visual.accentColor,
+                        letterSpacing: '0.12em',
+                        marginBottom: 3,
+                      }}
+                    >
+                      ADMITS
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>
+                      {admissions === 1 ? '1 PERSON' : `${admissions} PEOPLE`}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>
-                    {quantity != null && quantity > 1
-                      ? `${quantity} PEOPLE`
-                      : '1 PERSON'}
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -431,9 +441,10 @@ export default function VerticalTicket({
                   fontWeight: 700,
                   color: '#fff',
                   letterSpacing: '0.22em',
+                  whiteSpace: 'nowrap',
                 }}
               >
-                ADMIT ONE
+                {admitLabel}
               </div>
               <div
                 style={{

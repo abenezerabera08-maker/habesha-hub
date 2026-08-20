@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { requireRole } from "@/lib/auth";
+import { useAuth } from "@/lib/AuthContext";
 import { approvePayment, rejectPayment } from "@/lib/services/payments";
 
 type PendingPayment = {
@@ -32,20 +33,21 @@ export default function AdminPaymentsPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [processingId, setProcessingId] = useState<string | null>(null);
   const router = useRouter();
+  const { userId, role, loading: authLoading } = useAuth();
 
   useEffect(() => {
     const checkAccess = async () => {
-      const session = await requireRole("admin", (href) =>
+      requireRole("admin", role, authLoading, (href) =>
         router.replace(href),
       );
-      if (!session) return;
+      if (authLoading || role !== "admin") return;
 
       setIsAdmin(true);
       await loadPendingPayments();
       setLoading(false);
     };
     checkAccess();
-  }, [router]);
+  }, [router, role, authLoading]);
 
   async function loadPendingPayments() {
     setError("");
@@ -184,13 +186,13 @@ export default function AdminPaymentsPage() {
     setProcessingId(item.orderId);
     setError("");
 
-    const session = await requireRole("admin", (href) =>
+    requireRole("admin", role, authLoading, (href) =>
       router.replace(href),
     );
-    if (!session) return;
+    if (role !== "admin") return;
 
     const result = await approvePayment({
-      organizerId: session.userId,
+      organizerId: userId!,
       paymentId: item.paymentId,
       orderId: item.orderId,
     });
@@ -210,13 +212,13 @@ export default function AdminPaymentsPage() {
     setProcessingId(item.orderId);
     setError("");
 
-    const session = await requireRole("admin", (href) =>
+    requireRole("admin", role, authLoading, (href) =>
       router.replace(href),
     );
-    if (!session) return;
+    if (role !== "admin") return;
 
     const result = await rejectPayment({
-      organizerId: session.userId,
+      organizerId: userId!,
       paymentId: item.paymentId,
       orderId: item.orderId,
       reason: rejectReason,

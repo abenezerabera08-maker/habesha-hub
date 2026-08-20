@@ -1,10 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { Home, Ticket, User, LayoutDashboard, ShieldCheck, ScanLine } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/lib/AuthContext'
 
 type NavItem = {
   label: string
@@ -14,24 +13,9 @@ type NavItem = {
 
 export default function BottomNav() {
   const pathname = usePathname()
-  const [role, setRole] = useState<string | null>(null)
+  const { role } = useAuth()
 
-  useEffect(() => {
-    const fetchRole = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-
-      const { data } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', session.user.id)
-        .single()
-
-      setRole(data?.role ?? null)
-    }
-
-    fetchRole()
-  }, [])
+  if (pathname === '/login' || pathname === '/signup' || pathname.startsWith('/onboarding')) return null
 
   const navItems: NavItem[] = [
     { label: 'Discover', href: '/', icon: Home },

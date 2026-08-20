@@ -1,339 +1,331 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
-import { requireRole } from "@/lib/auth";
+import { redirect } from 'next/navigation'
+import Link from 'next/link'
+import { createClient } from '@/lib/supabase/server'
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
+  LayoutDashboard, ShoppingBag, DollarSign, Ticket,
+  CalendarDays, TrendingUp, MapPin,
+} from 'lucide-react'
+import RevenueChart from './RevenueChart'
+import SalesByEventChart from './SalesByEventChart'
 
-export default function DashboardPage() {
-  const [loading, setLoading] = useState(true);
-  const [error] = useState("");
-  const [totalRevenue, setTotalRevenue] = useState(0);
-  const [totalTicketsSold, setTotalTicketsSold] = useState(0);
-  const [chartData, setChartData] = useState<
-    { date: string; revenue: number }[]
-  >([]);
-  const [recentSales, setRecentSales] = useState<
-    {
-      id: string;
-      attendeeName: string;
-      eventTitle: string;
-      quantity: number;
-      totalPrice: number;
-      createdAt: string;
-    }[]
-  >([]);
-  const [myEvents, setMyEvents] = useState<
-    {
-      id: string;
-      title: string;
-      published_at: string | null;
-      event_date: string;
-    }[]
-  >([]);
-  const [selectedEventId, setSelectedEventId] = useState<string>("");
-  const router = useRouter();
+type EventRow = {
+  id: string; title: string; event_date: string; location: string | null
+  image_url: string | null; status: string; organizer_id: string
+}
 
-  useEffect(() => {
-    const checkAuth = async () => {
-      const session = await requireRole("organizer", router.push);
-      if (!session) return;
+type OrderRow = {
+  id: string; event_id: string; user_id: string; quantity: number
+  total_price: number; status: string; created_at: string | null
+}
 
-      const { data: events } = await supabase
-        .from("events")
-        .select("id")
-        .eq("organizer_id", session.userId);
+type ProfileRow = { id: string; full_name: string | null }
 
-      const eventIds = (events ?? []).map((e) => e.id);
-      if (eventIds.length === 0) {
-        setLoading(false);
-        return;
+export default async function DashboardPage() {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  console.log('[dashboard debug] user:', user?.id ?? 'NULL')
+  if (!user) {
+    redirect('/')
+  }
+
+  const [roleRes, eventsRes] = await Promise.all([
+    supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(),
+    supabase.from('events')
+      .select('id, title, event_date, location, image_url, status, organizer_id')
+      .eq('organizer_id', user.id)
+      .order('event_date', { ascending: false }),
+  ])
+
+  const role = roleRes.data?.role ?? null
+  console.log('[dashboard debug] role:', role, 'roleRes.error:', roleRes.error)
+  if (role !== 'organizer') {
+    redirect('/')
+  }
+
+  const allEvents = (eventsRes.data ?? []) as EventRow[]
+  const eventIds = allEvents.map(e => e.id)
+  const eventTitleMap = new Map(allEvents.map(e => [e.id, e.title]))
+
+  let totalRevenue = 0
+  let totalTicketsSold = 0
+  let totalOrders = 0
+  let chartData: { date: string; revenue: number }[] = []
+  let salesByEvent: { name: string; revenue: number }[] = []
+  let recentOrders: {
+    id: string; event: string; attendee: string; qty: number
+    amount: number; status: string; date: string
+  }[] = []
+
+  if (eventIds.length > 0) {
+    const now = new Date()
+    const ordersRes = await supabase.from('orders')
+      .select('id, event_id, user_id, quantity, total_price, status, created_at')
+      .in('event_id', eventIds)
+      .order('created_at', { ascending: false })
+
+    const allOrders = (ordersRes.data ?? []) as OrderRow[]
+    const confirmed = allOrders.filter(o => o.status === 'confirmed')
+
+    totalRevenue = confirmed.reduce((s, o) => s + o.total_price, 0)
+    totalTicketsSold = confirmed.reduce((s, o) => s + o.quantity, 0)
+    totalOrders = allOrders.length
+
+    const chartMap = new Map<string, number>()
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now)
+      d.setDate(d.getDate() - i)
+      chartMap.set(d.toISOString().slice(5, 10), 0)
+    }
+    for (const o of confirmed) {
+      if (o.created_at) {
+        const key = o.created_at.slice(5, 10)
+        if (chartMap.has(key)) chartMap.set(key, (chartMap.get(key) ?? 0) + o.total_price)
       }
+    }
+    chartData = Array.from(chartMap.entries()).map(([date, revenue]) => ({ date, revenue }))
 
-      const { data: eventsList } = await supabase
-        .from("events")
-        .select("id, title, published_at, event_date")
-        .eq("organizer_id", session.userId)
-        .not("published_at", "is", null)
-        .order("event_date", { ascending: false });
+    const eventRevMap = new Map<string, number>()
+    for (const o of confirmed) {
+      eventRevMap.set(o.event_id, (eventRevMap.get(o.event_id) ?? 0) + o.total_price)
+    }
+    salesByEvent = Array.from(eventRevMap.entries())
+      .map(([id, revenue]) => ({ name: eventTitleMap.get(id) ?? 'Unknown', revenue }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 4)
 
-      setMyEvents(eventsList ?? []);
-      if (eventsList && eventsList.length > 0) {
-        setSelectedEventId(eventsList[0].id);
-      }
+    const recent = allOrders.slice(0, 5)
+    const userIds = [...new Set(recent.map(o => o.user_id))]
 
-      const { data: orders } = await supabase
-        .from("orders")
-        .select("quantity, total_price")
-        .eq("status", "confirmed")
-        .in("event_id", eventIds);
+    let nameMap = new Map<string, string | null>()
+    if (userIds.length > 0) {
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', userIds)
+      nameMap = new Map((profilesData ?? []).map((p: ProfileRow) => [p.id, p.full_name]))
+    }
 
-      if (orders && orders.length > 0) {
-        setTotalRevenue(orders.reduce((sum, o) => sum + o.total_price, 0));
-        setTotalTicketsSold(orders.reduce((sum, o) => sum + o.quantity, 0));
-      }
+    recentOrders = recent.map(o => ({
+      id: o.id.slice(0, 8),
+      event: eventTitleMap.get(o.event_id) ?? '—',
+      attendee: nameMap.get(o.user_id) ?? 'Unknown',
+      qty: o.quantity,
+      amount: o.total_price,
+      status: o.status === 'confirmed' ? 'Completed' : o.status === 'pending_verification' ? 'Pending' : 'Failed',
+      date: o.created_at ? new Date(o.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' }) : '—',
+    }))
+  }
 
-      const { data: detailedOrders } = await supabase
-        .from("orders")
-        .select("id, quantity, total_price, created_at, event_id, user_id")
-        .eq("status", "confirmed")
-        .in("event_id", eventIds)
-        .order("created_at", { ascending: false });
-
-      if (detailedOrders && detailedOrders.length > 0) {
-        // Build recent sales table: last 8 orders, with event title and attendee name
-        const recentOrders = detailedOrders.slice(0, 8);
-        const eventIdsForRecent = [
-          ...new Set(recentOrders.map((o) => o.event_id)),
-        ];
-        const userIdsForRecent = [
-          ...new Set(recentOrders.map((o) => o.user_id)),
-        ];
-
-        const [eventsRes, profilesRes] = await Promise.all([
-          supabase
-            .from("events")
-            .select("id, title")
-            .in("id", eventIdsForRecent),
-          supabase
-            .from("profiles")
-            .select("id, full_name")
-            .in("id", userIdsForRecent),
-        ]);
-
-        const eventTitleMap = new Map(
-          (eventsRes.data ?? []).map((e) => [e.id, e.title]),
-        );
-        const nameMap = new Map(
-          (profilesRes.data ?? []).map((p) => [p.id, p.full_name]),
-        );
-
-        setRecentSales(
-          recentOrders.map((o) => ({
-            id: o.id,
-            attendeeName: nameMap.get(o.user_id) ?? "Unknown",
-            eventTitle: eventTitleMap.get(o.event_id) ?? "Unknown event",
-            quantity: o.quantity,
-            totalPrice: o.total_price,
-            createdAt: o.created_at ?? "",
-          })),
-        );
-      }
-
-      setLoading(false);
-    };
-    checkAuth();
-  }, [router]);
-
-  useEffect(() => {
-    const loadChartForEvent = async () => {
-      if (!selectedEventId) return;
-      const selectedEvent = myEvents.find((e) => e.id === selectedEventId);
-      if (!selectedEvent || !selectedEvent.published_at) return;
-
-      const { data: eventOrders } = await supabase
-        .from("orders")
-        .select("total_price, created_at")
-        .eq("status", "confirmed")
-        .eq("event_id", selectedEventId);
-
-      const start = new Date(selectedEvent.published_at);
-      const end = new Date(selectedEvent.event_date);
-      const days: { date: string; revenue: number }[] = [];
-      const cursor = new Date(start);
-      cursor.setHours(0, 0, 0, 0);
-      const endDay = new Date(end);
-      endDay.setHours(0, 0, 0, 0);
-
-      while (cursor <= endDay) {
-        const dateStr = cursor.toISOString().slice(0, 10);
-        const dayRevenue = (eventOrders ?? [])
-          .filter((o) => o.created_at && o.created_at.slice(0, 10) === dateStr)
-          .reduce((sum, o) => sum + o.total_price, 0);
-        days.push({ date: dateStr.slice(5), revenue: dayRevenue });
-        cursor.setDate(cursor.getDate() + 1);
-      }
-      setChartData(days);
-    };
-    loadChartForEvent();
-  }, [selectedEventId, myEvents]);
-
-  if (loading) return <p>Loading...</p>;
-  if (error) return <p>{error}</p>;
+  const now = new Date()
+  const published = allEvents.filter(e => e.status === 'published')
+  const publishedCount = published.length
+  const upcomingCount = published.filter(e => new Date(e.event_date) >= now).length
+  const upcomingEvents = allEvents
+    .filter(e => new Date(e.event_date) >= now)
+    .sort((a, b) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime())
+    .slice(0, 4)
 
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto" }}>
-      <h1 style={{ marginBottom: 24 }}>Overview</h1>
-      <div style={{ display: "flex", gap: 16 }}>
-        <div
-          style={{
-            border: "1px solid #ddd",
-            borderRadius: 8,
-            padding: 24,
-            flex: 1,
-          }}
-        >
-          <p style={{ margin: "0 0 8px", fontSize: 14, color: "#555" }}>
-            Revenue
-          </p>
-          <p style={{ margin: 0, fontSize: 28, fontWeight: 700 }}>
-            {totalRevenue} ETB
-          </p>
+    <div className="dash-layout">
+      <aside className="dash-sidebar">
+        <div className="dash-sidebar-brand">Organizer</div>
+        <nav className="dash-sidebar-nav">
+          <a href="/dashboard" className="dash-sidebar-link dash-sidebar-active">
+            <LayoutDashboard size={18} /> Overview
+          </a>
+          <a href="/dashboard/payments" className="dash-sidebar-link">
+            <ShoppingBag size={18} /> Orders
+          </a>
+        </nav>
+        <div className="dash-sidebar-avatar">
+          <span>{user.id.charAt(0).toUpperCase()}</span>
         </div>
-        <div
-          style={{
-            border: "1px solid #ddd",
-            borderRadius: 8,
-            padding: 24,
-            flex: 1,
-          }}
-        >
-          <p style={{ margin: "0 0 8px", fontSize: 14, color: "#555" }}>
-            Tickets Sold
-          </p>
-          <p style={{ margin: 0, fontSize: 28, fontWeight: 700 }}>
-            {totalTicketsSold}
-          </p>
-        </div>
-      </div>
+      </aside>
 
-      {myEvents.length === 0 ? (
-        <div
-          style={{
-            border: "1px solid #ddd",
-            borderRadius: 8,
-            padding: 24,
-            marginTop: 24,
-          }}
-        >
-          <p
-            style={{ margin: 0, fontSize: 14, color: "#555", fontWeight: 600 }}
-          >
-            No published events yet.
-          </p>
-        </div>
-      ) : (
-        <div
-          style={{
-            border: "1px solid #ddd",
-            borderRadius: 8,
-            padding: 24,
-            marginTop: 24,
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 16,
-            }}
-          >
-            <p
-              style={{
-                margin: 0,
-                fontSize: 14,
-                color: "#555",
-                fontWeight: 600,
-              }}
-            >
-              Revenue —{" "}
-              {myEvents.find((e) => e.id === selectedEventId)?.title ??
-                "select an event"}
+      <div className="dash-main">
+        <div className="dash-header">
+          <div>
+            <h1 style={{ fontSize: 28, fontWeight: 750, color: '#111827', margin: 0, letterSpacing: '-0.02em' }}>
+              Overview
+            </h1>
+            <p style={{ fontSize: 14, color: '#6B7280', margin: '4px 0 0' }}>
+              Welcome back! Here&apos;s what&apos;s happening with your events.
             </p>
-            <select
-              value={selectedEventId}
-              onChange={(e) => setSelectedEventId(e.target.value)}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 6,
-                border: "1px solid #ddd",
-              }}
-            >
-              {myEvents.map((ev) => (
-                <option key={ev.id} value={ev.id}>
-                  {ev.title}
-                </option>
-              ))}
-            </select>
           </div>
-          <ResponsiveContainer width="100%" height={250}>
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-              <XAxis dataKey="date" fontSize={12} />
-              <YAxis fontSize={12} />
-              <Tooltip />
-              <Line
-                type="monotone"
-                dataKey="revenue"
-                stroke="#171717"
-                strokeWidth={2}
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          <div className="dash-date-selector">
+            <CalendarDays size={16} color="#6B7280" />
+            <span>{new Date(now.getTime() - 6 * 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+            <ChevronDown size={14} color="#6B7280" />
+          </div>
         </div>
-      )}
 
-      <div
-        style={{
-          border: "1px solid #ddd",
-          borderRadius: 8,
-          padding: 24,
-          marginTop: 24,
-          marginBottom: 40,
-        }}
-      >
-        <p
-          style={{
-            margin: "0 0 16px",
-            fontSize: 14,
-            color: "#555",
-            fontWeight: 600,
-          }}
-        >
-          Recent Sales
-        </p>
-        {recentSales.length === 0 ? (
-          <p style={{ color: "#888", fontSize: 14 }}>No sales yet.</p>
-        ) : (
-          <table
-            style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}
-          >
-            <thead>
-              <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
-                <th style={{ padding: "8px 4px" }}>Attendee</th>
-                <th style={{ padding: "8px 4px" }}>Event</th>
-                <th style={{ padding: "8px 4px" }}>Qty</th>
-                <th style={{ padding: "8px 4px" }}>Amount</th>
-                <th style={{ padding: "8px 4px" }}>Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentSales.map((sale) => (
-                <tr key={sale.id} style={{ borderBottom: "1px solid #f0f0f0" }}>
-                  <td style={{ padding: "8px 4px" }}>{sale.attendeeName}</td>
-                  <td style={{ padding: "8px 4px" }}>{sale.eventTitle}</td>
-                  <td style={{ padding: "8px 4px" }}>{sale.quantity}</td>
-                  <td style={{ padding: "8px 4px" }}>{sale.totalPrice} ETB</td>
-                  <td style={{ padding: "8px 4px" }}>
-                    {new Date(sale.createdAt).toLocaleDateString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <div className="dash-stats">
+          <StatCard
+            icon={<DollarSign size={18} />}
+            iconBg="#FFF7ED" iconColor="#F97316"
+            label="Total Revenue"
+            value={`${totalRevenue.toLocaleString()} ETB`}
+            sub={publishedCount > 0 ? `${upcomingCount} upcoming` : undefined}
+          />
+          <StatCard
+            icon={<Ticket size={18} />}
+            iconBg="#F0FDF4" iconColor="#22C55E"
+            label="Tickets Sold"
+            value={String(totalTicketsSold)}
+          />
+          <StatCard
+            icon={<ShoppingBag size={18} />}
+            iconBg="#F5F3FF" iconColor="#8B5CF6"
+            label="Total Orders"
+            value={String(totalOrders)}
+          />
+          <StatCard
+            icon={<CalendarDays size={18} />}
+            iconBg="#EFF6FF" iconColor="#3B82F6"
+            label="Published Events"
+            value={String(publishedCount)}
+            sub={publishedCount > 0 ? `${upcomingCount} upcoming` : undefined}
+          />
+        </div>
+
+        <div className="dash-analytics">
+          <RevenueChart chartData={chartData} />
+          <SalesByEventChart salesByEvent={salesByEvent} />
+        </div>
+
+        <div className="dash-bottom">
+          <div className="dash-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 600, color: '#111827', margin: 0 }}>Recent Orders</h3>
+              <Link href="/dashboard/payments" style={{ fontSize: 13, fontWeight: 600, color: '#F59E0B', textDecoration: 'none' }}>
+                View all orders →
+              </Link>
+            </div>
+            {recentOrders.length > 0 ? (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="dash-table">
+                  <thead>
+                    <tr>
+                      <th>Order ID</th><th>Event</th><th>Attendee</th>
+                      <th>Qty</th><th>Amount</th><th>Status</th><th>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentOrders.map(o => (
+                      <tr key={o.id}>
+                        <td style={{ fontFamily: 'monospace', color: '#6B7280' }}>#{o.id}</td>
+                        <td style={{ fontWeight: 500 }}>{o.event}</td>
+                        <td>{o.attendee}</td>
+                        <td>{o.qty}</td>
+                        <td style={{ fontWeight: 500 }}>{o.amount.toLocaleString()} ETB</td>
+                        <td>
+                          <span className={`dash-badge ${o.status === 'Completed' ? 'dash-badge-green' : o.status === 'Pending' ? 'dash-badge-amber' : 'dash-badge-red'}`}>
+                            {o.status}
+                          </span>
+                        </td>
+                        <td style={{ color: '#6B7280' }}>{o.date}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, color: '#9CA3AF', textAlign: 'center', padding: '32px 0' }}>No orders yet</p>
+            )}
+          </div>
+
+          <div className="dash-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 600, color: '#111827', margin: 0 }}>Upcoming Events</h3>
+              <Link href="/my-events" style={{ fontSize: 13, fontWeight: 600, color: '#F59E0B', textDecoration: 'none' }}>
+                View all events →
+              </Link>
+            </div>
+            {upcomingEvents.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {upcomingEvents.map(ev => {
+                  const d = new Date(ev.event_date)
+                  return (
+                    <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0' }}>
+                      <div style={{ width: 58, height: 48, borderRadius: 6, overflow: 'hidden', flexShrink: 0, background: '#F3F4F6' }}>
+                        {ev.image_url ? (
+                          <img src={ev.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg, #312e81, #111827)' }} />
+                        )}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: '#111827', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {ev.title}
+                        </p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                          <CalendarDays size={11} color="#9CA3AF" />
+                          <span style={{ fontSize: 11, color: '#6B7280' }}>
+                            {d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}
+                            {' · '}
+                            {d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        {ev.location && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
+                            <MapPin size={11} color="#9CA3AF" />
+                            <span style={{ fontSize: 11, color: '#6B7280' }}>{ev.location}</span>
+                          </div>
+                        )}
+                      </div>
+                      <span className={`dash-badge ${ev.status === 'published' ? 'dash-badge-green' : 'dash-badge-amber'}`}>
+                        {ev.status === 'published' ? 'Published' : 'Pending Review'}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, color: '#9CA3AF', textAlign: 'center', padding: '32px 0' }}>No upcoming events</p>
+            )}
+          </div>
+        </div>
       </div>
     </div>
-  );
+  )
+}
+
+function ChevronDown({ size, color }: { size: number; color: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  )
+}
+
+function StatCard({ icon, iconBg, iconColor, label, value, change, sub }: {
+  icon: React.ReactNode; iconBg: string; iconColor: string
+  label: string; value: string; change?: number; sub?: string
+}) {
+  return (
+    <div className="dash-stat-card">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <span style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: 36, height: 36, borderRadius: 8, background: iconBg, color: iconColor,
+        }}>
+          {icon}
+        </span>
+        <span style={{ fontSize: 13, color: '#6B7280', fontWeight: 500 }}>{label}</span>
+      </div>
+      <p style={{ fontSize: 23, fontWeight: 700, color: '#111827', margin: 0 }}>{value}</p>
+      {change !== undefined && change !== 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6 }}>
+          <TrendingUp size={13} color="#22C55E" />
+          <span style={{ fontSize: 12, color: '#22C55E', fontWeight: 500 }}>
+            ↑ {Math.abs(change)}% vs last 7 days
+          </span>
+        </div>
+      )}
+      {sub && !change && (
+        <p style={{ fontSize: 12, color: '#6B7280', margin: '6px 0 0' }}>{sub}</p>
+      )}
+    </div>
+  )
 }

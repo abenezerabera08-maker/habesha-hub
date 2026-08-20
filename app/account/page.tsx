@@ -21,6 +21,7 @@ import {
   ShieldAlert,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/lib/AuthContext'
 import LogoutButton from '@/app/components/LogoutButton'
 
 type Profile = {
@@ -55,7 +56,9 @@ export default function AccountPage() {
   const [loading, setLoading] = useState(true)
   const [eventsAttended, setEventsAttended] = useState(0)
   const [interestCount, setInterestCount] = useState(0)
+  const [hostError, setHostError] = useState('')
   const router = useRouter()
+  const { role } = useAuth()
 
   useEffect(() => {
     const load = async () => {
@@ -376,11 +379,19 @@ export default function AccountPage() {
             <p style={{ fontSize: 13, color: '#A8A29E', margin: '8px 0 0', lineHeight: 1.5, maxWidth: 220 }}>
               Create, manage and grow your event. Reach more people and make it unforgettable.
             </p>
+            {hostError && (
+              <p style={{ fontSize: 13, color: '#FCA5A5', margin: '10px 0 0', lineHeight: 1.4, maxWidth: 260 }}>
+                {hostError}
+              </p>
+            )}
             <button
               type="button"
-              onClick={async () => {
-                const { data: { session } } = await supabase.auth.getSession()
-                if (!session) { router.push('/choose-role') } else { router.push('/create-event') }
+              onClick={() => {
+                if (role !== 'organizer') {
+                  setHostError('Only organizers can host events. Please switch to an organizer account to create events.')
+                  return
+                }
+                router.push('/create-event')
               }}
               style={{
                 marginTop: 16,
@@ -411,6 +422,67 @@ export default function AccountPage() {
         </div>
       </section>
 
+      {/* 4b. Manage Your Events — organizer only */}
+      {role === 'organizer' && (
+        <section
+          style={{
+            borderRadius: 16,
+            border: '1px solid #F5F5F4',
+            background: '#fff',
+            padding: 20,
+            marginBottom: 24,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+          }}
+        >
+          <div
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: '50%',
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: '#FEF3C7',
+              color: '#D97706',
+            }}
+          >
+            <CalendarDays size={20} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 14, fontWeight: 600, color: '#1C1917', margin: 0 }}>
+              Manage Your Events
+            </p>
+            <p style={{ fontSize: 12, color: '#78716C', margin: '2px 0 0', lineHeight: 1.4 }}>
+              View, edit, and track the events you&apos;ve created.
+              Manage drafts, pending approvals, and published events from one place.
+            </p>
+          </div>
+          <Link
+            href="/my-events"
+            style={{
+              flexShrink: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '8px 14px',
+              borderRadius: 999,
+              background: '#F59E0B',
+              color: '#1C1917',
+              fontSize: 12,
+              fontWeight: 600,
+              textDecoration: 'none',
+              lineHeight: 1.4,
+            }}
+          >
+            Manage Your Events
+            <ArrowRight size={14} />
+          </Link>
+        </section>
+      )}
+
       {/* 5. Quick Access */}
       <section style={{ marginBottom: 24 }}>
         <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1C1917', margin: '0 0 12px' }}>
@@ -422,12 +494,6 @@ export default function AccountPage() {
             title="My Tickets"
             desc="View your purchased tickets and orders"
             href="/my-tickets"
-          />
-          <QuickCard
-            icon={<CalendarDays size={16} />}
-            title="My Events"
-            desc="Events you're hosting"
-            href="/my-events"
           />
           <QuickCard
             icon={<Bookmark size={16} />}

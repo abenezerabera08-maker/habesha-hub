@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { requireRole } from "@/lib/auth";
+import { useAuth } from "@/lib/AuthContext";
 import { approvePayment, rejectPayment } from "@/lib/services/payments";
 
 type PendingPayment = {
@@ -29,20 +30,22 @@ export default function PaymentReviewPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [processingId, setProcessingId] = useState<string | null>(null);
   const router = useRouter();
+  const { userId, role, loading: authLoading } = useAuth();
 
   useEffect(() => {
     const checkAccess = async () => {
-      const session = await requireRole("organizer", (href) =>
+      requireRole("organizer", role, authLoading, (href) =>
         router.replace(href),
       );
-      if (!session) return;
+      if (authLoading || role !== "organizer") return;
 
       setIsOrganizer(true);
-      await loadPendingPayments(session.userId);
+      if (!userId) return;
+    await loadPendingPayments(userId!);
       setLoading(false);
     };
     checkAccess();
-  }, [router]);
+  }, [router, userId, role, authLoading]);
 
   async function loadPendingPayments(userId: string) {
     setError("");
@@ -163,13 +166,13 @@ export default function PaymentReviewPage() {
     setProcessingId(item.orderId);
     setError("");
 
-    const session = await requireRole("organizer", (href) =>
+    requireRole("organizer", role, authLoading, (href) =>
       router.replace(href),
     );
-    if (!session) return;
+    if (role !== "organizer") return;
 
     const result = await approvePayment({
-      organizerId: session.userId,
+      organizerId: userId!,
       paymentId: item.paymentId,
       orderId: item.orderId,
     });
@@ -180,7 +183,7 @@ export default function PaymentReviewPage() {
       return;
     }
 
-    await loadPendingPayments(session.userId);
+    await loadPendingPayments(userId!);
     setProcessingId(null);
   };
 
@@ -189,13 +192,13 @@ export default function PaymentReviewPage() {
     setProcessingId(item.orderId);
     setError("");
 
-    const session = await requireRole("organizer", (href) =>
+    requireRole("organizer", role, authLoading, (href) =>
       router.replace(href),
     );
-    if (!session) return;
+    if (role !== "organizer") return;
 
     const result = await rejectPayment({
-      organizerId: session.userId,
+      organizerId: userId!,
       paymentId: item.paymentId,
       orderId: item.orderId,
       reason: rejectReason,
@@ -207,7 +210,7 @@ export default function PaymentReviewPage() {
       return;
     }
 
-    await loadPendingPayments(session.userId);
+    await loadPendingPayments(userId!);
     setProcessingId(null);
     setRejectingId(null);
     setRejectReason("");

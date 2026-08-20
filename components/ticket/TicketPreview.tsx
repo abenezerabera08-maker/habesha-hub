@@ -11,6 +11,7 @@ type TicketPreviewProps = {
   eventDate?: string
   eventLocation?: string
   quantity?: number
+  admissionCount?: number
   price?: string
 }
 
@@ -24,6 +25,7 @@ export default function TicketPreview({
   eventDate,
   eventLocation,
   quantity,
+  admissionCount,
   price,
 }: TicketPreviewProps) {
   const crop = imageCrop ?? DEFAULT_IMAGE_CROP
@@ -73,6 +75,7 @@ export default function TicketPreview({
           eventLocation={eventLocation}
           imageCrop={crop}
           quantity={quantity}
+          admissionCount={admissionCount}
           price={price}
         />
       </div>

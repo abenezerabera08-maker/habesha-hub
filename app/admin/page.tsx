@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { useAuth } from '@/lib/AuthContext'
 import { approveEvent, rejectEvent } from '@/lib/services/admin'
 
 type PendingEvent = {
@@ -26,6 +27,7 @@ export default function AdminReviewPage() {
   const [rejectReason, setRejectReason] = useState('')
   const [processingId, setProcessingId] = useState<string | null>(null)
   const router = useRouter()
+  const { role, loading: authLoading } = useAuth()
 
   const loadPendingEvents = async () => {
     setError('')
@@ -65,15 +67,15 @@ export default function AdminReviewPage() {
 
   useEffect(() => {
     const checkAccess = async () => {
-      const session = await requireRole('admin', (href) => router.replace(href))
-      if (!session) return
+      requireRole('admin', role, authLoading, (href) => router.replace(href))
+      if (authLoading || role !== 'admin') return
 
       setIsAdmin(true)
       await loadPendingEvents()
       setLoading(false)
     }
     checkAccess()
-  }, [router])
+  }, [router, role, authLoading])
 
   const handleApprove = async (item: PendingEvent) => {
     setProcessingId(item.id)

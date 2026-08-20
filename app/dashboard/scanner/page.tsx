@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { useAuth } from '@/lib/AuthContext'
 import { apiPost } from '@/lib/apiClient'
 
 type LookupResult = {
@@ -28,18 +29,19 @@ export default function CheckInScannerPage() {
   const [lookupError, setLookupError] = useState('')
   const [checkingIn, setCheckingIn] = useState(false)
   const router = useRouter()
+  const { userId, role, loading: authLoading } = useAuth()
 
   useEffect(() => {
     const checkAccess = async () => {
-      const session = await requireRole('organizer', (href) => router.replace(href))
-      if (!session) return
+      requireRole('organizer', role, authLoading, (href) => router.replace(href))
+      if (authLoading || role !== 'organizer') return
 
       setIsOrganizer(true)
 
       const { data, error: eventsError } = await supabase
         .from('events')
         .select('id, title')
-        .eq('organizer_id', session.userId)
+        .eq('organizer_id', userId)
         .eq('status', 'published')
         .order('event_date', { ascending: false })
 
@@ -56,7 +58,7 @@ export default function CheckInScannerPage() {
       setLoading(false)
     }
     checkAccess()
-  }, [router])
+  }, [router, userId, role, authLoading])
 
   const handleLookup = async (e: React.FormEvent) => {
     e.preventDefault()

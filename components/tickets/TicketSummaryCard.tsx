@@ -1,6 +1,8 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { ChevronRight, MapPin } from 'lucide-react'
 import {
   getTierConfig,
@@ -25,6 +27,7 @@ type TicketSummaryOrder = {
 }
 
 export default function TicketSummaryCard({ order }: { order: TicketSummaryOrder }) {
+  const [imgFailed, setImgFailed] = useState(false)
   const displayStatus = getDisplayStatus(order)
   const status = STATUS_CONFIG[displayStatus]
   const StatusIcon = status.icon
@@ -67,14 +70,17 @@ export default function TicketSummaryCard({ order }: { order: TicketSummaryOrder
       <div style={{ display: 'flex', gap: 12, padding: '14px 14px 12px' }}>
         {/* Event image */}
         <div style={{
-          width: 88, height: 112, borderRadius: 10, overflow: 'hidden',
-          flexShrink: 0, background: '#F2F4F7',
+          width: 88, aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden',
+          flexShrink: 0, background: '#F2F4F7', position: 'relative',
         }}>
-          {order.event?.image_url ? (
-            <img
+          {order.event?.image_url && !imgFailed ? (
+            <Image
               src={order.event.image_url}
               alt=""
-              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              fill
+              sizes="88px"
+              style={{ objectFit: 'cover' }}
+              onError={() => setImgFailed(true)}
             />
           ) : (
             <div style={{

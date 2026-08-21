@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import Image from 'next/image'
 import { type LucideIcon } from 'lucide-react'
 
 type CarouselEvent = {
@@ -19,9 +20,10 @@ type EventCarouselProps = {
   icon: LucideIcon
   events: CarouselEvent[]
   onSeeAll?: () => void
+  priorityFirst?: boolean
 }
 
-function CarouselCard({ event }: { event: CarouselEvent }) {
+function CarouselCard({ event, priority }: { event: CarouselEvent; priority?: boolean }) {
   const [imgFailed, setImgFailed] = React.useState(false)
   const showImage = !!event.imageUrl && !imgFailed
 
@@ -51,17 +53,14 @@ function CarouselCard({ event }: { event: CarouselEvent }) {
         }}
       >
         {showImage && (
-          <img
+          <Image
             src={event.imageUrl!}
             alt={event.title}
+            fill
+            sizes="(max-width: 768px) 50vw, 220px"
+            style={{ objectFit: 'cover' }}
             onError={() => setImgFailed(true)}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-            }}
+            priority={priority}
           />
         )}
         <div
@@ -167,7 +166,7 @@ function CarouselCard({ event }: { event: CarouselEvent }) {
   )
 }
 
-export default function EventCarousel({ title, icon: Icon, events, onSeeAll }: EventCarouselProps) {
+export default function EventCarousel({ title, icon: Icon, events, onSeeAll, priorityFirst }: EventCarouselProps) {
   if (events.length === 0) return null
 
   return (
@@ -221,8 +220,8 @@ export default function EventCarousel({ title, icon: Icon, events, onSeeAll }: E
           msOverflowStyle: 'none',
         }}
       >
-        {events.map((e) => (
-          <CarouselCard key={e.id} event={e} />
+        {events.map((e, index) => (
+          <CarouselCard key={e.id} event={e} priority={priorityFirst && index === 0} />
         ))}
       </div>
     </div>

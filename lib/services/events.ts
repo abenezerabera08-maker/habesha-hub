@@ -30,10 +30,12 @@ export type CreateEventInput = {
   location: string
   cityId: string
   eventDate: string
+  eventEndDate?: string | null
   status: 'draft' | 'pending_review'
   tiers: TierRow[]
   paymentMethods: PaymentMethodRow[]
   interestIds?: string[]
+  googleMapsUrl?: string
 }
 
 export async function createEvent(input: CreateEventInput): Promise<DbResult<{ eventId: string }>> {
@@ -47,7 +49,9 @@ export async function createEvent(input: CreateEventInput): Promise<DbResult<{ e
         location: input.location.trim(),
         city_id: input.cityId,
         event_date: input.eventDate,
+        end_at: input.eventEndDate || null,
         status: input.status,
+        google_maps_url: input.googleMapsUrl?.trim() || null,
       })
       .select('id')
       .single(),
@@ -116,9 +120,11 @@ export async function updateEventDetails(
     location: string
     cityId: string
     eventDate: string
+    eventEndDate?: string | null
     interestIds?: string[]
     status?: string
     imageUrl?: string | null
+    googleMapsUrl?: string
   }
 ): Promise<DbResult<{ id: string }>> {
   const updatePayload: Record<string, unknown> = {
@@ -128,11 +134,17 @@ export async function updateEventDetails(
     event_date: details.eventDate,
     city_id: details.cityId || null,
   }
+  if (details.eventEndDate !== undefined) {
+    updatePayload.end_at = details.eventEndDate || null
+  }
   if (details.status) {
     updatePayload.status = details.status
   }
   if (details.imageUrl !== undefined) {
     updatePayload.image_url = details.imageUrl
+  }
+  if (details.googleMapsUrl !== undefined) {
+    updatePayload.google_maps_url = details.googleMapsUrl?.trim() || null
   }
 
   const result = await expectRow(

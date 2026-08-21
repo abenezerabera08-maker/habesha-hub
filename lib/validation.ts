@@ -162,6 +162,8 @@ export function validateEvent(input: {
   title: string
   location: string
   eventDate: string
+  eventEndDate?: string
+  googleMapsUrl: string
   tiers: TicketTierInput[]
   paymentMethods: PaymentMethodInput[]
 }): string[] {
@@ -170,8 +172,31 @@ export function validateEvent(input: {
   if (!sanitizeText(input.title)) errors.push('Event title is required.')
   if (!sanitizeText(input.location)) errors.push('Event location is required.')
 
+  if (!sanitizeText(input.googleMapsUrl)) {
+    errors.push('Google Maps link is required.')
+  } else {
+    const url = input.googleMapsUrl.trim()
+    const validGoogleMaps = /^https?:\/\/(maps\.google\.com|www\.google\.com\/maps|maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(url)
+    if (!validGoogleMaps) {
+      const isUrl = /^https?:\/\//i.test(url)
+      if (!isUrl) {
+        errors.push('Google Maps link must be a valid URL.')
+      } else {
+        errors.push('Google Maps link must be a Google Maps URL (e.g. https://maps.google.com/... or https://maps.app.goo.gl/...).')
+      }
+    }
+  }
+
   const dateError = validateEventDate(input.eventDate)
   if (dateError) errors.push(dateError)
+
+  if (input.eventEndDate) {
+    const endDate = new Date(input.eventEndDate).getTime()
+    const startDate = new Date(input.eventDate).getTime()
+    if (!Number.isNaN(endDate) && !Number.isNaN(startDate) && endDate <= startDate) {
+      errors.push('Event ending time must be after the starting time.')
+    }
+  }
 
   if (input.tiers.length === 0) errors.push('Add at least one ticket type.')
   for (let i = 0; i < input.tiers.length; i++) {

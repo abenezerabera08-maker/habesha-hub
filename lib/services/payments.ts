@@ -13,9 +13,9 @@ export type CheckoutInput = {
   eventId: string
   tierId: string
   quantity: number
-  file: File
-  referenceNumber: string
-  paymentMethodId: string
+  file?: File
+  referenceNumber?: string
+  paymentMethodId?: string
 }
 
 export async function checkoutOrder(
@@ -23,6 +23,30 @@ export async function checkoutOrder(
 ): Promise<DbResult<{ orderId: string }>> {
   if (!Number.isInteger(input.quantity) || input.quantity < 1) {
     return fail('Quantity must be a whole number of at least 1.')
+  }
+
+  const referenceNumber = sanitizeText(input.referenceNumber ?? '')
+  if (referenceNumber.length > MAX_REFERENCE_LENGTH) {
+    return fail(`The reference number must be ${MAX_REFERENCE_LENGTH} characters or fewer.`)
+  }
+
+  // Free ticket: no payment method or proof required
+  if (!input.paymentMethodId && !input.file) {
+    const start = await apiPost<{ orderId: string }>('/api/checkout', {
+      eventId: input.eventId,
+      tierId: input.tierId,
+      quantity: input.quantity,
+      free: true,
+    })
+    return start
+  }
+
+  // Paid ticket: full flow
+  if (!input.file) {
+    return fail('Please upload proof of payment.')
+  }
+  if (!input.paymentMethodId) {
+    return fail('Please select a payment method.')
   }
 
   const proofExt = imageExtensionForMime(input.file.type)
@@ -33,11 +57,6 @@ export async function checkoutOrder(
     return fail(
       `The proof image must be ${Math.floor(MAX_PROOF_IMAGE_BYTES / (1024 * 1024))} MB or smaller.`
     )
-  }
-
-  const referenceNumber = sanitizeText(input.referenceNumber)
-  if (referenceNumber.length > MAX_REFERENCE_LENGTH) {
-    return fail(`The reference number must be ${MAX_REFERENCE_LENGTH} characters or fewer.`)
   }
 
   const start = await apiPost<{ orderId: string }>('/api/checkout', {

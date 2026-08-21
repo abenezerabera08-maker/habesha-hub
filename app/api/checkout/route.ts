@@ -14,6 +14,7 @@ export async function POST(request: NextRequest) {
     const tierId = body?.tierId
     const quantity = body?.quantity
     const paymentMethodId = body?.paymentMethodId
+    const isFree = body?.free === true
 
     if (typeof eventId !== 'string' || !eventId) {
       throw new ApiFailure('Missing event id.', 400)
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest) {
     if (typeof tierId !== 'string' || !tierId) {
       throw new ApiFailure('Missing ticket type id.', 400)
     }
-    if (typeof paymentMethodId !== 'string' || !paymentMethodId) {
+    if (!isFree && (typeof paymentMethodId !== 'string' || !paymentMethodId)) {
       throw new ApiFailure('Missing payment method id.', 400)
     }
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY_PER_ORDER) {
@@ -47,6 +48,11 @@ export async function POST(request: NextRequest) {
       throw new ApiFailure('This ticket type is not available for purchase.', 400)
     }
 
+    const isTierFree = tier.price === 0
+    if (isFree && !isTierFree) {
+      throw new ApiFailure('This ticket is not free.', 400)
+    }
+
     const maxPerOrder = tier.max_per_order ?? tier.quantity_remaining
     if (quantity > maxPerOrder) {
       throw new ApiFailure(`This ticket type is limited to ${maxPerOrder} per order.`, 400)
@@ -55,16 +61,20 @@ export async function POST(request: NextRequest) {
       throw new ApiFailure('Not enough tickets remaining for that quantity.', 400)
     }
 
-    const { data: paymentMethod } = await db
-      .from('event_payment_methods')
-      .select('id')
-      .eq('id', paymentMethodId)
-      .eq('event_id', eventId)
-      .eq('is_active', true)
-      .maybeSingle()
-    if (!paymentMethod) {
-      throw new ApiFailure('That payment method is not available for this event.', 400)
+    if (!isFree) {
+      const { data: paymentMethod } = await db
+        .from('event_payment_methods')
+        .select('id')
+        .eq('id', paymentMethodId)
+        .eq('event_id', eventId)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (!paymentMethod) {
+        throw new ApiFailure('That payment method is not available for this event.', 400)
+      }
     }
+
+    const orderStatus = isFree ? 'confirmed' : 'pending_payment'
 
     const { data: order, error } = await db
       .from('orders')
@@ -74,7 +84,7 @@ export async function POST(request: NextRequest) {
         ticket_tier_id: tierId,
         quantity,
         total_price: tier.price * quantity,
-        status: 'pending_payment',
+        status: orderStatus,
       })
       .select('id')
       .single()

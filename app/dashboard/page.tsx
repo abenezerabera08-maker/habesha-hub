@@ -24,7 +24,6 @@ export default async function DashboardPage() {
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
-  console.log('[dashboard debug] user:', user?.id ?? 'NULL')
   if (!user) {
     redirect('/')
   }
@@ -38,7 +37,6 @@ export default async function DashboardPage() {
   ])
 
   const role = roleRes.data?.role ?? null
-  console.log('[dashboard debug] role:', role, 'roleRes.error:', roleRes.error)
   if (role !== 'organizer') {
     redirect('/')
   }

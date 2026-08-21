@@ -11,10 +11,11 @@ type NavItem = {
   icon: typeof Home
 }
 
-export default function BottomNav() {
+export default function BottomNav({ hidden = false }: { hidden?: boolean }) {
   const pathname = usePathname()
   const { role } = useAuth()
 
+  if (hidden) return null
   if (pathname === '/login' || pathname === '/signup' || pathname.startsWith('/onboarding')) return null
 
   const navItems: NavItem[] = [

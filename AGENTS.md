@@ -152,6 +152,70 @@ the database silently keeps the old value.
 Add a dated entry here after every session — what was built, what broke,
 what got fixed. Keep entries short; this is a changelog, not a diary.
 
+- **Session (2026-08-21, Onboarding Modal):** Built first-open
+  onboarding modal/sheet that overlays the entire app and hides the
+  bottom navigation. New `components/onboarding/OnboardingChoiceModal.tsx`
+  — fixed-position overlay with backdrop blur, bottom sheet on mobile,
+  centered modal on desktop, drag handle, close button, hero with
+  Sparkles icon + "What do you want to **do?**" heading (gold accent),
+  two large choice cards (Attend Events with purple accent/Users icon,
+  Host an Event with gold accent/CalendarPlus icon), "or" divider,
+  "Skip for now" link. Uses `localStorage` key
+  `habeshahub_onboarding_completed` to persist completion. New
+  `components/onboarding/OnboardingProvider.tsx` — client wrapper that
+  checks localStorage on mount, shows/hides modal, conditionally renders
+  `BottomNav` via `hidden` prop, locks body scroll when open. Updated
+  `app/layout.tsx` to wrap in `OnboardingProvider` instead of directly
+  rendering `BottomNav`. Updated `BottomNav` to accept `hidden` prop.
+  Redirected old `/choose-role` page to `/`. `tsc --noEmit` and
+  `next build` both pass.
+
+- **Session (2026-08-21, Event Details + Checkout Redesign):** Completed
+  full event details page redesign matching reference design: rounded cover
+  image (20px radius, 16:9), title + Share button row, date/time/location
+  with amber icon badges, "View on Map" button using `google_maps_url`,
+  interest tags, About section with markdown rendering (headings, bold,
+  italic, bullet lists), Organizers section with avatar initial/name/
+  chevron, ticket tier cards with per-type icons (Crown/VIP, Clock/
+  Early Bird, Star/General, Users/Group), tier colors, descriptions,
+  benefits with green checkmarks, remaining quantity, individual "Get
+  Your Ticket" buttons, sold-out handling. Added Google Maps URL
+  validation to `validateEvent()` (required + URL format check for
+  maps.google.com/google.com/maps/maps.app.goo.gl/goo.gl/maps).
+  Completely redesigned checkout page: sticky header with back button
+  + subtitle, Order Summary card with tier icon/name/description/benefits,
+  Quantity stepper (−/+) with min/max enforcement, Total Amount display,
+  Payment Method as selectable radio cards with tier-color selection ring,
+  drag-and-drop proof-of-payment upload area, reference number with
+  helper text, lock-icon submit button, security badge, error banner.
+  All existing functionality preserved (checkoutOrder, proof upload,
+  reference number, quantity limits, payment method selection).
+  `tsc --noEmit` and `next build` both pass.
+
+- **Session (2026-08-21, Unified Event Editor):** Extracted all event editor
+  UI into shared `components/event-editor/` — `types.ts` (shared types:
+  `PaymentMethod`, `TicketTier`, `EventEditorMode`, `EventInitialData`,
+  `SavePayload`, `EventEditorProps`), `helpers.ts` (`emptyPaymentMethod`,
+  `emptyTicketTier`, `toUTCISOString`, `needsProvider`), `primitives.tsx`
+  (`SectionCard`, `Field`, `cardStyle`, `inputBase`), `ProgressSteps.tsx`,
+  `MobileHeader.tsx`, `sidebar.tsx` (`EventPreviewCard`, `OrganizerTips`,
+  `NeedHelp`, `ReviewSection`, `OrganizerGuideModal`), and `EventEditor.tsx`
+  (main shared component with all form sections: Event Basics, Interests,
+  Cover Image, Event Date, Tickets with appearance/preview/benefits, Payment
+  Methods, plus sidebar with live preview/tips/review/help guide). Refactored
+  `app/create-event/page.tsx` from 1171 lines to 113-line thin wrapper
+  (auth check + `createEvent`/`updateEventDetails` save handler). Refactored
+  `app/events/[id]/edit/page.tsx` from 942 lines to 217-line thin wrapper
+  (auth + ownership check, parallel data fetch for event/tiers/payments/
+  interests/cities, `updateEventDetails`/`replaceTiers`/`replacePaymentMethods`
+  save handler, `submitEventForReview` for draft/rejected events). Edit mode:
+  `initialData` prop pre-populates all fields; event status badge shows
+  in header; tickets/payments sections are read-only when event is
+  `published`/`pending_review`; rejection reason banner shown at top;
+  dedicated "Submit for Review" button at bottom for draft/rejected events.
+  Both pages now share identical UI, validation, and review checklist.
+  `tsc --noEmit` and `next build` both pass.
+
 - **Session (tonight):** Fixed RLS bugs blocking payment approve/reject
   persistence and attendee name display on `/dashboard/payments`. Fixed
   ticket sale-date timezone bug. Built bottom nav bar. Built `/dashboard`

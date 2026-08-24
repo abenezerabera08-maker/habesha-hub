@@ -167,8 +167,6 @@ function CarouselCard({ event, priority }: { event: CarouselEvent; priority?: bo
 }
 
 export default function EventCarousel({ title, icon: Icon, events, onSeeAll, priorityFirst }: EventCarouselProps) {
-  if (events.length === 0) return null
-
   return (
     <div style={{ marginTop: 24 }}>
       <div
@@ -209,21 +207,35 @@ export default function EventCarousel({ title, icon: Icon, events, onSeeAll, pri
           </button>
         )}
       </div>
-      <div
-        style={{
-          marginTop: 12,
-          display: 'flex',
-          gap: 12,
-          overflowX: 'auto',
-          padding: '0 16px 4px',
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
-        }}
-      >
-        {events.map((e, index) => (
-          <CarouselCard key={e.id} event={e} priority={priorityFirst && index === 0} />
-        ))}
-      </div>
+      {events.length === 0 ? (
+        <p
+          style={{
+            margin: '12px 16px 0',
+            fontSize: 13,
+            color: '#A8A29E',
+            textAlign: 'center',
+            padding: '20px 0',
+          }}
+        >
+          No events here yet.
+        </p>
+      ) : (
+        <div
+          style={{
+            marginTop: 12,
+            display: 'flex',
+            gap: 12,
+            overflowX: 'auto',
+            padding: '0 16px 4px',
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none',
+          }}
+        >
+          {events.map((e, index) => (
+            <CarouselCard key={e.id} event={e} priority={priorityFirst && index === 0} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

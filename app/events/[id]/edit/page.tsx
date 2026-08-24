@@ -12,6 +12,7 @@ import {
   replacePaymentMethods,
 } from '@/lib/services/events'
 import { imageExtensionForMime } from '@/lib/validation'
+import { apiPost } from '@/lib/apiClient'
 import EventEditor from '@/components/event-editor/EventEditor'
 import type { SavePayload, EventInitialData, TicketTier, PaymentMethod } from '@/components/event-editor/types'
 
@@ -126,6 +127,17 @@ export default function EditEventPage() {
 
     const needsReReview = event.status === 'published' || event.status === 'pending_review'
 
+    // Capture previous date before update (for notification comparison)
+    const previousEventData = needsReReview
+      ? await supabase
+          .from('events')
+          .select('event_date, end_at')
+          .eq('id', event.id)
+          .maybeSingle()
+      : null
+    const previousDate = previousEventData?.data?.event_date as string | undefined
+    const previousEndDate = previousEventData?.data?.end_at as string | undefined
+
     const details = await updateEventDetails(event.id, {
       title: data.title, description: data.description, location: data.location,
       cityId: data.cityId,
@@ -172,6 +184,16 @@ export default function EditEventPage() {
       ? 'Saved — this event has been resubmitted for review since it was previously live.'
       : 'Saved successfully.')
     setSaving(false)
+
+    // Send update/reschedule notifications (fire-and-forget — don't block the save)
+    if (needsReReview) {
+      apiPost('/api/events/notify-update', {
+        eventId: event.id,
+        previousDate,
+        previousEndDate,
+      }).catch((err) => console.error('Event update notifications failed:', err))
+    }
+
     return { ok: true }
   }
 

@@ -423,7 +423,7 @@ export default function EventEditor({
             {/* Event Date */}
             <SectionCard id="section-event-date" icon={Calendar} title="Event Date" subtitle="When is your event?">
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
-                <Field label="Event Date" required>
+                <Field label="Event Date" required hint="This is when your event will start">
                   <input type="datetime-local" style={inputBase} value={eventDate} onChange={e => setEventDate(e.target.value)} />
                 </Field>
                 <Field label="Event Ending Time" hint="Optional — leave blank if the event has no specified ending time">

@@ -44,8 +44,24 @@ export default async function DiscoverPage() {
       .order('event_date', { ascending: true }),
   ])
 
+  // Fallback: if end_at column doesn't exist yet, re-fetch without it
+  let eventsFromDb: DbEvent[]
+  if (eventsRes.error) {
+    const fallback = await supabase
+      .from('events')
+      .select('id, title, description, event_date, location, city_id, image_url, ticket_tiers ( price )')
+      .eq('status', 'published')
+      .order('event_date', { ascending: true })
+    eventsFromDb = ((fallback.data ?? []) as Record<string, unknown>[]).map((e) => ({
+      ...e,
+      end_at: null,
+    })) as DbEvent[]
+  } else {
+    eventsFromDb = (eventsRes.data ?? []) as DbEvent[]
+  }
+
   const allInterests = (interestsRes.data ?? []) as InterestRow[]
-  const rawEvents = ((eventsRes.data ?? []) as DbEvent[]).filter((e) =>
+  const rawEvents = eventsFromDb.filter((e) =>
     isEventDiscoverable(e.event_date, e.end_at)
   )
 

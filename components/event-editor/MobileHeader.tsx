@@ -1,10 +1,14 @@
-import { Menu, Bell } from 'lucide-react'
+'use client'
+
+import { ArrowLeft, Bell } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 export function MobileHeader() {
+  const router = useRouter()
   return (
     <div className="create-event-mobile-header">
-      <button type="button" aria-label="Menu" style={{ background: 'none', border: 'none', padding: 6, cursor: 'pointer', color: '#111827' }}>
-        <Menu size={22} />
+      <button type="button" aria-label="Back" onClick={() => router.back()} style={{ background: 'none', border: 'none', padding: 6, cursor: 'pointer', color: '#111827' }}>
+        <ArrowLeft size={22} />
       </button>
       <span style={{ fontSize: 16, fontWeight: 700, color: '#111827', display: 'flex', alignItems: 'center', gap: 4 }}>
         <span style={{ color: '#f59e0b' }}>★</span> Habesha Hub

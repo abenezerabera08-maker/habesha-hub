@@ -99,7 +99,8 @@ export default function DiscoverContent({
     const today: DbEvent[] = []
     const soon: DbEvent[] = []
     for (const e of filteredEvents) {
-      if (isToday(e.event_date, now)) {
+      const { status } = getEventStatus(e.event_date, e.end_at, now)
+      if (status === 'happening' || isToday(e.event_date, now)) {
         today.push(e)
       } else {
         soon.push(e)

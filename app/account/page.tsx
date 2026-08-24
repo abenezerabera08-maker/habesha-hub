@@ -354,6 +354,7 @@ export default async function AccountPage() {
             icon={<Bell size={16} />}
             title="Notifications"
             desc="Manage your notification preferences"
+            href="/account/notifications"
           />
           <SettingsRow
             icon={<ShieldAlert size={16} />}
@@ -475,24 +476,17 @@ function SettingsRow({
   icon,
   title,
   desc,
+  href,
   last,
 }: {
   icon: React.ReactNode
   title: string
   desc: string
+  href?: string
   last?: boolean
 }) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: '14px 16px',
-        borderBottom: last ? 'none' : '1px solid #F5F5F4',
-        minHeight: 56,
-      }}
-    >
+  const content = (
+    <>
       <div
         style={{
           width: 36,
@@ -517,6 +511,25 @@ function SettingsRow({
         </p>
       </div>
       <ChevronRight size={16} color="#D6D3D1" style={{ flexShrink: 0 }} />
-    </div>
+    </>
   )
+
+  const rowStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    padding: '14px 16px',
+    borderBottom: last ? 'none' : '1px solid #F5F5F4',
+    minHeight: 56,
+  }
+
+  if (href) {
+    return (
+      <Link href={href} style={{ ...rowStyle, textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}>
+        {content}
+      </Link>
+    )
+  }
+
+  return <div style={rowStyle}>{content}</div>
 }

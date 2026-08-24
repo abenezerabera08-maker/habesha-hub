@@ -57,6 +57,7 @@ export type TicketTierConfig = {
   badge: { text: string; bg: string } | null
   icon: LucideIcon
   art: string
+  defaultImage: string
 }
 
 export const TICKET_TYPE_LABELS: Record<string, string> = {
@@ -120,6 +121,7 @@ export const TIER_CONFIGS: Record<string, TicketTierConfig> = {
     badge: null,
     icon: Crown,
     art: 'vip',
+    defaultImage: '/ticket-defaults/vip.jpg',
   },
   earlybird: {
     id: 'earlybird',
@@ -133,6 +135,7 @@ export const TIER_CONFIGS: Record<string, TicketTierConfig> = {
     badge: { text: 'EARLY ACCESS. BEST PRICE.', bg: '#E8720B' },
     icon: Bird,
     art: 'earlybird',
+    defaultImage: '/ticket-defaults/earlybird.jpg',
   },
   ga: {
     id: 'ga',
@@ -146,6 +149,7 @@ export const TIER_CONFIGS: Record<string, TicketTierConfig> = {
     badge: null,
     icon: Star,
     art: 'ga',
+    defaultImage: '/ticket-defaults/ga.jpg',
   },
   backstage: {
     id: 'backstage',
@@ -159,6 +163,7 @@ export const TIER_CONFIGS: Record<string, TicketTierConfig> = {
     badge: { text: 'BEHIND THE SCENES', bg: '#6E3FBF' },
     icon: KeyRound,
     art: 'backstage',
+    defaultImage: '/ticket-defaults/backstage.jpg',
   },
   balcony: {
     id: 'balcony',
@@ -172,6 +177,7 @@ export const TIER_CONFIGS: Record<string, TicketTierConfig> = {
     badge: { text: 'BEST VIEW. BEST EXPERIENCE.', bg: '#10807A' },
     icon: Armchair,
     art: 'balcony',
+    defaultImage: '/ticket-defaults/balcony.jpg',
   },
   group: {
     id: 'group',
@@ -185,6 +191,7 @@ export const TIER_CONFIGS: Record<string, TicketTierConfig> = {
     badge: { text: 'TOGETHER IS BETTER', bg: '#2E7D3B' },
     icon: Users,
     art: 'group',
+    defaultImage: '/ticket-defaults/group.jpg',
   },
 }
 
@@ -228,9 +235,9 @@ function ticketPath(
   return d
 }
 
-export function computeTicketPath(width: number, height: number): string {
-  const contentH = height * 0.7814
-  return ticketPath(width, height, { cornerR: 20, notchY: contentH, notchR: 16 })
+export function computeTicketPath(width: number, height: number, notchY?: number): string {
+  const ny = notchY ?? height * 0.7814
+  return ticketPath(width, height, { cornerR: 20, notchY: ny, notchR: 16 })
 }
 
 /* ===========================================================
@@ -570,7 +577,7 @@ export function resolveVisual(
       footerLabel: config.footerLabel,
       footerSubtitle: config.footerSub,
       badge: config.badge,
-      artworkImage: artworkImage,
+      artworkImage: artworkImage ?? config.defaultImage,
     }
   }
 
@@ -592,6 +599,6 @@ export function resolveVisual(
     footerLabel: config.footerLabel,
     footerSubtitle: config.footerSub,
     badge: config.badge,
-    artworkImage: null,
+    artworkImage: config.defaultImage,
   }
 }

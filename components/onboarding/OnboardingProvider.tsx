@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import OnboardingChoiceModal from './OnboardingChoiceModal'
 import BottomNav from '@/app/components/BottomNav'
+import NotificationBell from '@/components/notification/NotificationBell'
 
 const STORAGE_KEY = 'habeshahub_onboarding_completed'
 
@@ -42,7 +43,12 @@ export default function OnboardingProvider({ children }: { children: React.React
   return (
     <>
       {children}
-      {mounted && <BottomNav hidden={showModal} />}
+      {mounted && (
+        <>
+          <BottomNav hidden={showModal} />
+          {!showModal && <NotificationBell />}
+        </>
+      )}
       <OnboardingChoiceModal
         open={showModal}
         onAttend={handleAttend}

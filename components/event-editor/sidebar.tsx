@@ -26,7 +26,7 @@ export function EventPreviewCard({ eventName, city, location, date, interests, c
 
   return (
     <div style={{ overflow: 'hidden', borderRadius: 12, border: '1px solid #e5e7eb', background: '#fff' }}>
-      <div style={{ position: 'relative', height: 140, width: '100%', background: '#111827' }}>
+      <div style={{ position: 'relative', aspectRatio: '1200 / 630', width: '100%', background: '#111827' }}>
         {coverImageUrl ? (
           <img src={coverImageUrl} alt="" style={{ height: '100%', width: '100%', objectFit: 'cover', opacity: 0.8 }} />
         ) : (

@@ -152,6 +152,50 @@ the database silently keeps the old value.
 Add a dated entry here after every session — what was built, what broke,
 what got fixed. Keep entries short; this is a changelog, not a diary.
 
+- **Session (2026-08-26, Production Hardening — notification bugs):** Fixed
+  3 real defects found during full-system audit of notification system:
+  **Bug #1 (in-app disabled + email enabled):** When user disabled in-app
+  but enabled email, `createNotification` skipped the DB insert (in-app
+  disabled) then `queueEmailDelivery` queried for the most recent notification
+  of that type — finding stale data from a previous event. Fix: always insert
+  the notification row; in-app preference filtering now happens at read time
+  in `getNotificationsPage` and `getUnreadNotificationCount` (filters out
+  types whose category has `in_app_enabled = false`). Removed unused
+  `isInAppEnabled` and `filterEnabledNotifications` functions. **Bug #2
+  (notification data key mismatch):** All producers passed camelCase keys
+  (`orderId`, `eventId`, `tierId`) but email templates and
+  `getNotificationHref` expected snake_case (`order_id`, `event_id`) plus
+  display fields (`event_name`, `tier_name`, `quantity`, `total_price`,
+  `buyer_name`). This caused emails to show "your event" instead of real
+  names, and notification navigation to break (no `event_id` in data). Fixed
+  all 5 producer sites: `checkout/route.ts`, `checkout/confirm/route.ts`,
+  `payments/verify/route.ts`, `checkin/confirm/route.ts`,
+  `events/notify-update/route.ts`. Also enriched reminder data in
+  `reminders.ts` with `event_date` for email template date display.
+  **Bug #3 (stuck processing rows):** Worker crash left email delivery rows
+  in `processing` permanently with no recovery. Added pre-step to
+  `processEmailDeliveries` that resets any `processing` rows with
+  `updated_at` older than 5 minutes back to `pending`. Return type now
+  includes `recovered` count. Worker route logs the recovered count.
+  **Bug #4 (event_cancelled):** Noted as known gap — the type, template,
+  icon, and navigation helpers all exist, but no code path creates
+  `event_cancelled` notifications because there is no cancel-event feature
+  yet. All 4 fixes verified: `tsc --noEmit` and `next build` both pass.
+
+- **Session (2026-08-21, Discovery regression fix):** Diagnosed Discovery
+  page regression — Today's Events / Coming Soon sections were not visible.
+  Root cause: `app/page.tsx` selected `end_at` column which may not exist
+  yet if migration `20260821_events_end_at.sql` hasn't been applied to the
+  database; when the query fails, zero events are returned and both
+  carousels render empty. Fixed in `app/page.tsx` with a fallback: if the
+  `end_at` query errors, re-fetches without `end_at` and maps each row to
+  have `end_at: null`. Also fixed `EventCarousel.tsx` which previously
+  returned `null` when `events.length === 0` — now always renders the
+  section header with icon and title, and shows "No events here yet."
+  placeholder text when the list is empty. Removed debug `console.log`
+  statements from `app/page.tsx`. `tsc --noEmit` and `next build` both
+  pass.
+
 - **Session (2026-08-21, Onboarding Modal):** Built first-open
   onboarding modal/sheet that overlays the entire app and hides the
   bottom navigation. New `components/onboarding/OnboardingChoiceModal.tsx`

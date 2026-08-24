@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server'
 import { ApiFailure, requireUser, runApi } from '@/lib/api'
 import { generateTkCode } from '@/lib/tkcode'
+import { createNotification } from '@/lib/services/notifications'
 
 export const runtime = 'nodejs'
 
@@ -158,6 +159,71 @@ export async function POST(request: NextRequest) {
       await db.from('orders').update({ status: orderRow.status }).eq('id', orderId)
       await rollbackPayment()
       throw new ApiFailure(`Recording the verification: ${verificationError.message}`, 500)
+    }
+
+    // Notification: payment confirmed (only on approval)
+    if (decision === 'approved') {
+      const { data: eventData } = await db
+        .from('events')
+        .select('title, organizer_id')
+        .eq('id', orderRow.event_id)
+        .maybeSingle()
+
+      // Get the buyer from the order
+      const { data: orderFull } = await db
+        .from('orders')
+        .select('user_id, ticket_tier_id, quantity, total_price')
+        .eq('id', orderId)
+        .maybeSingle()
+
+      if (eventData && orderFull) {
+        const { data: tierData } = await db
+          .from('ticket_tiers')
+          .select('name')
+          .eq('id', orderFull.ticket_tier_id)
+          .maybeSingle()
+
+        // Fetch buyer name from profiles
+        const { data: buyerProfile } = await db
+          .from('profiles')
+          .select('full_name')
+          .eq('id', orderFull.user_id)
+          .maybeSingle()
+
+        const eventName = eventData.title
+        const buyerName = buyerProfile?.full_name ?? null
+        // Attendee notification
+        createNotification({
+          userId: orderFull.user_id,
+          type: 'payment_confirmed',
+          title: 'Payment confirmed',
+          message: `Your payment for ${eventName} has been confirmed.`,
+          data: {
+            event_id: orderRow.event_id,
+            order_id: orderId,
+            tier_id: orderFull.ticket_tier_id,
+            event_name: eventName,
+            tier_name: tierData?.name ?? null,
+            quantity: orderFull.quantity,
+            total_price: orderFull.total_price,
+          },
+        }).catch((err) => console.error('Notification failed (payment_confirmed):', err.message))
+
+        // Organizer notification
+        createNotification({
+          userId: eventData.organizer_id,
+          type: 'payment_received',
+          title: 'Payment received',
+          message: `A payment for ${eventName} has been confirmed.`,
+          data: {
+            event_id: orderRow.event_id,
+            order_id: orderId,
+            event_name: eventName,
+            amount: orderFull.total_price,
+            buyer_name: buyerName,
+          },
+        }).catch((err) => console.error('Notification failed (payment_received):', err.message))
+      }
     }
 
     return Response.json({ ok: true, data: { orderId } })

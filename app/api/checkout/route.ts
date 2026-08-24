@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server'
 import { ApiFailure, requireUser, runApi } from '@/lib/api'
+import { createNotification } from '@/lib/services/notifications'
 
 export const runtime = 'nodejs'
 
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
 
     const { data: tier } = await db
       .from('purchasable_ticket_tiers')
-      .select('id, price, quantity_remaining, max_per_order')
+      .select('id, name, price, quantity_remaining, max_per_order')
       .eq('id', tierId)
       .eq('event_id', eventId)
       .maybeSingle()
@@ -91,6 +92,52 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       throw new ApiFailure(`Creating your order: ${error.message}`, 500)
+    }
+
+    // Notification: ticket purchased (free tickets are immediately confirmed)
+    if (orderStatus === 'confirmed') {
+      const { data: eventData } = await db
+        .from('events')
+        .select('title, organizer_id')
+        .eq('id', eventId)
+        .maybeSingle()
+
+      if (eventData) {
+        const eventName = eventData.title
+        // Attendee notification
+        createNotification({
+          userId: user.id,
+          type: 'ticket_purchased',
+          title: 'Ticket purchased',
+          message: `Your ticket for ${eventName} has been purchased successfully.`,
+          data: {
+            event_id: eventId,
+            order_id: order.id,
+            tier_id: tierId,
+            event_name: eventName,
+            tier_name: tier.name ?? null,
+            quantity,
+            total_price: tier.price * quantity,
+          },
+        }).catch((err) => console.error('Notification failed (ticket_purchased):', err.message))
+
+        // Organizer notification
+        createNotification({
+          userId: eventData.organizer_id,
+          type: 'new_ticket_sale',
+          title: 'New ticket sale',
+          message: `A new ticket was purchased for ${eventName}.`,
+          data: {
+            event_id: eventId,
+            order_id: order.id,
+            tier_id: tierId,
+            event_name: eventName,
+            tier_name: tier.name ?? null,
+            quantity,
+            buyer_name: null,
+          },
+        }).catch((err) => console.error('Notification failed (new_ticket_sale):', err.message))
+      }
     }
 
     return Response.json({ ok: true, data: { orderId: order.id } })

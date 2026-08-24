@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server'
 import { ApiFailure, requireUser, runApi } from '@/lib/api'
+import { createNotification } from '@/lib/services/notifications'
 
 export const runtime = 'nodejs'
 
@@ -39,6 +40,42 @@ export async function POST(request: NextRequest) {
 
     if (error) throw new ApiFailure(`Checking in: ${error.message}`, 500)
     if (!data?.checked_in_at) throw new ApiFailure('Checking in: the change was blocked.', 500)
+
+    // Notification: ticket checked in
+    // Get event details and buyer info
+    const { data: eventData } = await db
+      .from('events')
+      .select('title, organizer_id')
+      .eq('id', order.event_id)
+      .maybeSingle()
+
+    // Get the buyer from the order
+    const { data: orderFull } = await db
+      .from('orders')
+      .select('user_id')
+      .eq('id', orderId)
+      .maybeSingle()
+
+    if (eventData && orderFull) {
+      const eventName = eventData.title
+      // Attendee notification
+      createNotification({
+        userId: orderFull.user_id,
+        type: 'ticket_checked_in',
+        title: 'Ticket checked in',
+        message: `Your ticket for ${eventName} has been checked in.`,
+        data: { event_id: order.event_id, order_id: orderId },
+      }).catch((err) => console.error('Notification failed (ticket_checked_in):', err.message))
+
+      // Organizer notification
+      createNotification({
+        userId: eventData.organizer_id,
+        type: 'attendee_checked_in',
+        title: 'Attendee checked in',
+        message: `An attendee has checked in to ${eventName}.`,
+        data: { event_id: order.event_id, order_id: orderId, attendee_id: orderFull.user_id },
+      }).catch((err) => console.error('Notification failed (attendee_checked_in):', err.message))
+    }
 
     return Response.json({ ok: true, data: { orderId: data.id, checkedInAt: data.checked_in_at } })
   })

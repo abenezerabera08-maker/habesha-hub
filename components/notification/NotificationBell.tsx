@@ -109,9 +109,13 @@ export default function NotificationBell() {
     )
     decrementUnreadCount()
 
+    const { data: { session } } = await supabase.auth.getSession()
     const res = await fetch('/api/notifications/read', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      },
       body: JSON.stringify({ notificationId }),
     })
 
@@ -133,8 +137,12 @@ export default function NotificationBell() {
     )
     setUnreadCount(0)
 
+    const { data: { session } } = await supabase.auth.getSession()
     const res = await fetch('/api/notifications/read-all', {
       method: 'POST',
+      headers: {
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      },
     })
 
     if (!res.ok) {
